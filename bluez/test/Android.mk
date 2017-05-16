@@ -220,8 +220,8 @@ LOCAL_SRC_FILES:= \
 LOCAL_C_INCLUDES:= \
 	$(LOCAL_PATH)/../lib \
 	$(LOCAL_PATH)/../src \
-	$(call include-path-for, glib) \
-	$(call include-path-for, glib)\glib
+        $(LOCAL_PATH)/../../glib \
+	$(LOCAL_PATH)/../../glib\glib
 
 
 LOCAL_SHARED_LIBRARIES := \
@@ -253,8 +253,8 @@ LOCAL_SRC_FILES:= \
 LOCAL_C_INCLUDES:= \
 	$(LOCAL_PATH)/../lib \
 	$(LOCAL_PATH)/../src \
-	$(call include-path-for, glib) \
-	$(call include-path-for, glib)\glib
+        $(LOCAL_PATH)/../../glib \
+        $(LOCAL_PATH)/../../glib\glib \
 
 LOCAL_SHARED_LIBRARIES := \
 	libbluetoothd \

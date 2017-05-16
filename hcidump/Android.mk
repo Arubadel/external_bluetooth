@@ -4,7 +4,7 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_C_INCLUDES:= \
-	$(call include-path-for,bluez)/lib/ \
+	external/bluetooth/bluez/lib/ \
 
 LOCAL_CFLAGS:= \
 	-DVERSION=\"2.0\"

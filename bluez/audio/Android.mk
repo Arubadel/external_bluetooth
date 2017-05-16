@@ -34,7 +34,7 @@ LOCAL_C_INCLUDES:= \
 	$(LOCAL_PATH)/../gdbus \
 	$(LOCAL_PATH)/../src \
 	$(LOCAL_PATH)/../btio \
-	$(call include-path-for, glib) \
+        $(LOCAL_PATH)/../../glib \
 	$(call include-path-for, dbus)
 
 LOCAL_SHARED_LIBRARIES := \

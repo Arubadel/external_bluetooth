@@ -58,8 +58,8 @@ LOCAL_C_INCLUDES:= \
 	$(LOCAL_PATH)/../lib \
 	$(LOCAL_PATH)/../gdbus \
 	$(LOCAL_PATH)/../plugins \
-	$(call include-path-for, glib) \
-	$(call include-path-for, glib)/glib \
+	$(LOCAL_PATH)/../../glib \
+	$(LOCAL_PATH)/../../glib/glib \
 	$(call include-path-for, dbus)
 
 LOCAL_SHARED_LIBRARIES := \
