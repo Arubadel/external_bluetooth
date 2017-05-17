@@ -35,7 +35,7 @@ LOCAL_C_INCLUDES:= \
 	$(LOCAL_PATH)/../src \
 	$(LOCAL_PATH)/../btio \
         $(LOCAL_PATH)/../../glib \
-	$(call include-path-for, dbus)
+	$(LOCAL_PATH)/../../dbus
 
 LOCAL_SHARED_LIBRARIES := \
 	libbluetooth \

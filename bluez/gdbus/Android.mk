@@ -9,7 +9,7 @@ LOCAL_CFLAGS+=-O3 -DNEED_DBUS_WATCH_GET_UNIX_FD
 LOCAL_C_INCLUDES:= \
 	$(LOCAL_PATH)/../lib \
         $(LOCAL_PATH)/../../glib \
-	$(call include-path-for, dbus)
+	$(LOCAL_PATH)/../../dbus
 
 LOCAL_MODULE:=libgdbus_static
 

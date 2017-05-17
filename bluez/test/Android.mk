@@ -118,7 +118,7 @@ LOCAL_SRC_FILES:= \
 LOCAL_C_INCLUDES:= \
 	$(LOCAL_PATH)/../lib \
 	$(LOCAL_PATH)/../src \
-	$(call include-path-for, dbus)
+	$(LOCAL_PATH)/../../dbus
 
 LOCAL_SHARED_LIBRARIES := \
 	libdbus
