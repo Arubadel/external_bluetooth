@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012-2014 The Android Open Source Project
+ * Copyright (C) 2014 The Linux Foundation. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,15 +20,15 @@ package com.android.bluetooth.btservice;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothMasInstance;
 import android.bluetooth.BluetoothRemoteDiRecord;
+import android.bluetooth.BluetoothMasInstance;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Message;
 import android.os.ParcelUuid;
 import android.util.Log;
-
+import android.os.PowerManager;
 import com.android.bluetooth.Utils;
 import com.android.bluetooth.btservice.RemoteDevices.DeviceProperties;
 
@@ -48,6 +49,9 @@ final class RemoteDevices {
     private static ArrayList<BluetoothDevice> mSdpTracker;
     private static ArrayList<BluetoothDevice> mSdpMasTracker;
 
+    /* The WakeLock is used for bringing up the LCD during a pairing request
+     * from remote device when Android is in Suspend state.*/
+    private PowerManager.WakeLock mWakeLock;
     private Object mObject = new Object();
 
     private static final int UUID_INTENT_DELAY = 6000;
@@ -58,12 +62,18 @@ final class RemoteDevices {
 
     private HashMap<BluetoothDevice, DeviceProperties> mDevices;
 
-    RemoteDevices(AdapterService service) {
+    RemoteDevices(PowerManager pm, AdapterService service) {
         mAdapter = BluetoothAdapter.getDefaultAdapter();
         mAdapterService = service;
         mSdpTracker = new ArrayList<BluetoothDevice>();
         mSdpMasTracker = new ArrayList<BluetoothDevice>();
         mDevices = new HashMap<BluetoothDevice, DeviceProperties>();
+
+        //WakeLock instantiation in RemoteDevices class
+        mWakeLock = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP
+                       | PowerManager.ON_AFTER_RELEASE, TAG);
+        mWakeLock.setReferenceCounted(false);
+
     }
 
 
@@ -202,23 +212,6 @@ final class RemoteDevices {
         }
 
         /**
-         * @param mBondState the mBondState to set
-         */
-        void setBondState(int mBondState) {
-            synchronized (mObject) {
-                this.mBondState = mBondState;
-                if (mBondState == BluetoothDevice.BOND_NONE)
-                {
-                    /* Clearing the Uuids local copy when the device is unpaired. If not cleared,
-                    cachedBluetoothDevice issued a connect using the local cached copy of uuids,
-                    without waiting for the ACTION_UUID intent.
-                    This was resulting in multiple calls to connect().*/
-                    mUuids = null;
-                }
-            }
-        }
-
-        /**
          * @return the mtrustValue
          */
         boolean getTrust() {
@@ -243,6 +236,23 @@ final class RemoteDevices {
         }
 
         /**
+         * @param mBondState the mBondState to set
+         */
+        void setBondState(int mBondState) {
+            synchronized (mObject) {
+                this.mBondState = mBondState;
+                if (mBondState == BluetoothDevice.BOND_NONE)
+                {
+                    /* Clearing the Uuids local copy when the device is unpaired. If not cleared,
+                    cachedBluetoothDevice issued a connect using the local cached copy of uuids,
+                    without waiting for the ACTION_UUID intent.
+                    This was resulting in multiple calls to connect().*/
+                    mUuids = null;
+                }
+            }
+        }
+
+        /**
          * @return the mBondState
          */
         int getBondState() {
@@ -260,6 +270,28 @@ final class RemoteDevices {
                 return mDiRecord;
             }
         }
+
+        /**
+         * @param byte array contains di record
+         */
+        void updateRemoteDiRecord(byte[] val) {
+            int vendorId, vendorIdSource, productId, productVersion, specificationId;
+            synchronized (mObject) {
+                vendorId = Utils.byteArrayToInt(val);
+                vendorIdSource = Utils.byteArrayToInt(val, 4);
+                productId = Utils.byteArrayToInt(val, 8);
+                productVersion = Utils.byteArrayToInt(val, 12);
+                specificationId = Utils.byteArrayToInt(val, 16);
+
+                mDiRecord = new BluetoothRemoteDiRecord(vendorId, vendorIdSource, productId,
+                                    productVersion, specificationId);
+
+                Log.d(TAG, "VendorID: " + vendorId + " VendorIdSrc: " + vendorIdSource +
+                     " ProductID: " + productId + " ProductVersion: " + productVersion +
+                     " SpecificationId: " + specificationId);
+            }
+        }
+
     }
 
     private void sendUuidIntent(BluetoothDevice device) {
@@ -286,6 +318,21 @@ final class RemoteDevices {
         //Remove the outstanding UUID request
         mSdpMasTracker.remove(device);
     }
+
+    private void sendDisplayPinIntent(byte[] address, int pin) {
+        // Acquire wakelock during PIN code request to bring up LCD display
+        mWakeLock.acquire();
+        Intent intent = new Intent(BluetoothDevice.ACTION_PAIRING_REQUEST);
+        intent.putExtra(BluetoothDevice.EXTRA_DEVICE, getDevice(address));
+        intent.putExtra(BluetoothDevice.EXTRA_PAIRING_KEY, pin);
+        intent.putExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT,
+                    BluetoothDevice.PAIRING_VARIANT_DISPLAY_PIN);
+        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        mAdapterService.sendOrderedBroadcast(intent, mAdapterService.BLUETOOTH_ADMIN_PERM);
+        // Release wakelock to allow the LCD to go off after the PIN popup notification.
+        mWakeLock.release();
+    }
+
     void devicePropertyChangedCallback(byte[] address, int[] types, byte[][] values) {
         Intent intent;
         byte[] val;
@@ -360,6 +407,9 @@ final class RemoteDevices {
                             // RSSI from hal is in one byte
                             device.mRssi = val[0];
                             break;
+                        case AbstractionLayer.BT_PROPERTY_REMOTE_DI_RECORD:
+                            device.updateRemoteDiRecord(val);
+                            break;
                     }
                 }
             }
@@ -385,6 +435,95 @@ final class RemoteDevices {
         intent.putExtra(BluetoothDevice.EXTRA_NAME, deviceProp.mName);
 
         mAdapterService.sendBroadcast(intent, mAdapterService.BLUETOOTH_PERM);
+    }
+
+    void pinRequestCallback(byte[] address, byte[] name, int cod, boolean secure) {
+        //TODO(BT): Get wakelock and update name and cod
+        BluetoothDevice bdDevice = getDevice(address);
+        if (bdDevice == null) {
+            addDeviceProperties(address);
+        }
+        BluetoothClass btClass = bdDevice.getBluetoothClass();
+        int btDeviceClass = btClass.getDeviceClass();
+        if (btDeviceClass == BluetoothClass.Device.PERIPHERAL_KEYBOARD ||
+            btDeviceClass == BluetoothClass.Device.PERIPHERAL_KEYBOARD_POINTING) {
+            // Its a keyboard. Follow the HID spec recommendation of creating the
+            // passkey and displaying it to the user. If the keyboard doesn't follow
+            // the spec recommendation, check if the keyboard has a fixed PIN zero
+            // and pair.
+            //TODO: Add sFixedPinZerosAutoPairKeyboard() and maintain list of devices that have fixed pin
+            /*if (mAdapterService.isFixedPinZerosAutoPairKeyboard(address)) {
+                               mAdapterService.setPin(address, BluetoothDevice.convertPinToBytes("0000"));
+                               return;
+                     }*/
+            // Generate a variable PIN. This is not truly random but good enough.
+            int pin = (int) Math.floor(Math.random() * 1000000);
+            sendDisplayPinIntent(address, pin);
+            return;
+        }
+        infoLog("pinRequestCallback: " + address + " name:" + name + " cod:" +
+                cod + "secure" + secure );
+        // Acquire wakelock during PIN code request to bring up LCD display
+        mWakeLock.acquire();
+        Intent intent = new Intent(BluetoothDevice.ACTION_PAIRING_REQUEST);
+        intent.putExtra(BluetoothDevice.EXTRA_DEVICE, getDevice(address));
+        intent.putExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT,
+                BluetoothDevice.PAIRING_VARIANT_PIN);
+        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        mAdapterService.sendOrderedBroadcast(intent, mAdapterService.BLUETOOTH_ADMIN_PERM);
+        intent.putExtra(BluetoothDevice.EXTRA_SECURE_PAIRING, secure);
+        mAdapterService.sendBroadcast(intent, mAdapterService.BLUETOOTH_ADMIN_PERM);
+        // Release wakelock to allow the LCD to go off after the PIN popup notification.
+        mWakeLock.release();
+        return;
+    }
+
+    void sspRequestCallback(byte[] address, byte[] name, int cod, int pairingVariant,
+            int passkey) {
+        //TODO(BT): Get wakelock and update name and cod
+        BluetoothDevice bdDevice = getDevice(address);
+        if (bdDevice == null) {
+            addDeviceProperties(address);
+        }
+
+        infoLog("sspRequestCallback: " + address + " name: " + name + " cod: " +
+                cod + " pairingVariant " + pairingVariant + " passkey: " + passkey);
+        int variant;
+        boolean displayPasskey = false;
+        if (pairingVariant == AbstractionLayer.BT_SSP_VARIANT_PASSKEY_CONFIRMATION) {
+            variant = BluetoothDevice.PAIRING_VARIANT_PASSKEY_CONFIRMATION;
+            displayPasskey = true;
+        } else if (pairingVariant == AbstractionLayer.BT_SSP_VARIANT_CONSENT) {
+            variant = BluetoothDevice.PAIRING_VARIANT_CONSENT;
+        } else if (pairingVariant == AbstractionLayer.BT_SSP_VARIANT_PASSKEY_ENTRY) {
+            variant = BluetoothDevice.PAIRING_VARIANT_PASSKEY;
+        } else if (pairingVariant == AbstractionLayer.BT_SSP_VARIANT_PASSKEY_NOTIFICATION) {
+            variant = BluetoothDevice.PAIRING_VARIANT_DISPLAY_PASSKEY;
+            displayPasskey = true;
+        } else {
+            errorLog("SSP Pairing variant not present");
+            return;
+        }
+        BluetoothDevice device = getDevice(address);
+        if (device == null) {
+           warnLog("Device is not known for:" + Utils.getAddressStringFromByte(address));
+           addDeviceProperties(address);
+           device = getDevice(address);
+        }
+        // Acquire wakelock during PIN code request to bring up LCD display
+        mWakeLock.acquire();
+
+        Intent intent = new Intent(BluetoothDevice.ACTION_PAIRING_REQUEST);
+        intent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
+        if (displayPasskey) {
+            intent.putExtra(BluetoothDevice.EXTRA_PAIRING_KEY, passkey);
+        }
+        intent.putExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, variant);
+        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        mAdapterService.sendOrderedBroadcast(intent, mAdapterService.BLUETOOTH_ADMIN_PERM);
+        // Release wakelock to allow the LCD to go off after the PIN popup notification.
+        mWakeLock.release();
+
     }
 
     void aclStateChangeCallback(int status, byte[] address, int newState) {

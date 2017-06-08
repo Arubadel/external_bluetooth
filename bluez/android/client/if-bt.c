@@ -464,7 +464,7 @@ static void enable_p(int argc, const char **argv)
 {
 	RETURN_IF_NULL(if_bluetooth);
 
-	EXEC(if_bluetooth->enable);
+	EXEC(if_bluetooth->enable,0);
 }
 #if ANDROID_VERSION >= PLATFORM_VER(5, 0, 0)
 static void read_energy_info_p(int argc, const char **argv)

@@ -281,6 +281,21 @@ public class HidService extends ProfileService {
                     }
                 }
                 break;
+                case MESSAGE_ON_VIRTUAL_UNPLUG:
+                {
+                    BluetoothDevice device = getDevice((byte[]) msg.obj);
+                    int status = msg.arg1;
+                    broadcastVirtualUnplugStatus(device, status);
+                }
+                break;
+                case MESSAGE_GET_IDLE_TIME:
+                {
+                    BluetoothDevice device = (BluetoothDevice) msg.obj;
+                    if(!getIdleTimeNative(Utils.getByteAddress(device)) ) {
+                        Log.e(TAG, "Error: get idle time native returns false");
+                    }
+                }
+                break;
                 case MESSAGE_ON_GET_IDLE_TIME:
                 {
                     BluetoothDevice device = getDevice((byte[]) msg.obj);
@@ -296,13 +311,6 @@ public class HidService extends ProfileService {
                     if(!setIdleTimeNative(Utils.getByteAddress(device), idleTime)) {
                         Log.e(TAG, "Error: get idle time native returns false");
                     }
-                }
-                break;
-                case MESSAGE_ON_VIRTUAL_UNPLUG:
-                {
-                    BluetoothDevice device = getDevice((byte[]) msg.obj);
-                    int status = msg.arg1;
-                    broadcastVirtualUnplugStatus(device, status);
                 }
                 break;
             }

@@ -51,7 +51,6 @@ import com.android.bluetooth.Utils;
 import com.android.internal.util.IState;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
-import android.net.Uri;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -125,19 +124,6 @@ public final class Avrcp {
     private static final int MSG_SET_METADATA = 101;
     private static final int MSG_SET_TRANSPORT_CONTROLS = 102;
     private static final int MSG_SET_GENERATION_ID = 104;
-    private static final int MSG_UPDATE_AVAILABLE_PLAYERS = 201;
-    private static final int MSG_UPDATE_ADDRESSED_PLAYER = 202;
-    private static final int MSG_UPDATE_RCC_CHANGE = 203;
-    private static final int MSG_UPDATE_BROWSED_PLAYER_FOLDER = 204;
-    private static final int MSG_UPDATE_NOW_PLAYING_CONTENT_CHANGED = 205;
-    private static final int MSG_PLAY_ITEM_RESPONSE = 206;
-    private static final int MSG_NOW_PLAYING_ENTRIES_RECEIVED = 207;
-
-    private final static long UID_TITLES = 0x01;
-    private final static long UID_ALBUM = 0x02;
-    private final static long UID_ARTIST = 0x03;
-    private final static long UID_PLAYLIST = 0x04;
-    private final static int NUM_ROOT_ELEMENTS = 0x04;
 
     private static final int BUTTON_TIMEOUT_TIME = 2000;
     private static final int BASE_SKIP_AMOUNT = 2000;
@@ -265,70 +251,6 @@ public final class Avrcp {
                 handler.obtainMessage(MSG_SET_METADATA, 0, 0, metadataEditor).sendToTarget();
             }
         }
-
-        @Override
-        public void onClientFolderInfoBrowsedPlayer(String stringUri) {
-            Log.v(TAG, "onClientFolderInfoBrowsedPlayer: stringUri: " + stringUri);
-            Handler handler = mLocalHandler.get();
-            if (stringUri != null) {
-                String[] ExternalPath = stringUri.split("/");
-                if (ExternalPath.length < 4) {
-                    Log.d(TAG, "Wrong entries.");
-                    handler.obtainMessage(MSG_UPDATE_BROWSED_PLAYER_FOLDER, 0, 0, null)
-                                                                        .sendToTarget();
-                    return;
-                }
-                Uri uri = Uri.parse(stringUri);
-                Log.v(TAG, "URI received: " + uri);
-                String[] SplitPath = new String[ExternalPath.length - 3];
-                for (int count = 2; count < (ExternalPath.length - 1); count++) {
-                    SplitPath[count - 2] = ExternalPath[count];
-                    Log.d(TAG, "SplitPath[" + (count - 2) + "] = " + SplitPath[count - 2]);
-                }
-                Log.v(TAG, "folderDepth: " + SplitPath.length);
-                for (int count = 0; count < SplitPath.length; count++) {
-                    Log.v(TAG, "folderName: " + SplitPath[count]);
-                }
-                if (handler != null) {
-                     // Don't send the complete path to CK as few gets confused by that
-                    // Send only the name of the root folder
-                    handler.obtainMessage(MSG_UPDATE_BROWSED_PLAYER_FOLDER, NUM_ROOT_ELEMENTS,
-                                                1, SplitPath).sendToTarget();
-                }
-            } else {
-                handler.obtainMessage(MSG_UPDATE_BROWSED_PLAYER_FOLDER, 0, 0, null)
-                                                                    .sendToTarget();
-            }
-        }
-
-        @Override
-        public void onClientUpdateNowPlayingEntries(long[] playList) {
-            Log.v(TAG, "onClientUpdateNowPlayingEntries");
-            Handler handler = mLocalHandler.get();
-            if (handler != null) {
-                handler.obtainMessage(MSG_NOW_PLAYING_ENTRIES_RECEIVED, 0, 0,
-                                                            playList).sendToTarget();
-            }
-        }
-
-        @Override
-        public void onClientNowPlayingContentChange() {
-            Log.v(TAG, "onClientNowPlayingContentChange");
-            Handler handler = mLocalHandler.get();
-            if (handler != null) {
-                handler.obtainMessage(MSG_UPDATE_NOW_PLAYING_CONTENT_CHANGED).sendToTarget();
-            }
-        }
-
-	@Override
-	public void onClientPlayItemResponse(boolean success) {
-            Log.v(TAG, "onClientPlayItemResponse");
-            Handler handler = mLocalHandler.get();
-            if (handler != null) {
-		handler.obtainMessage(MSG_PLAY_ITEM_RESPONSE, 0, 0, new Boolean(success))
-			.sendToTarget();
-            }
-	}
     }
 
     /** Handles Avrcp messages. */

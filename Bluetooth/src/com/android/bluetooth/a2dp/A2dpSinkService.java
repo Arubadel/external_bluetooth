@@ -20,7 +20,6 @@ import android.bluetooth.BluetoothAudioConfig;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.IBluetoothA2dpSink;
-import android.provider.Settings;
 import android.util.Log;
 import com.android.bluetooth.btservice.ProfileService;
 import com.android.bluetooth.Utils;
@@ -144,32 +143,6 @@ public class A2dpSinkService extends ProfileService {
         return mStateMachine.getConnectionState(device);
     }
 
-    public boolean setPriority(BluetoothDevice device, int priority) {
-        enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
-                                       "Need BLUETOOTH_ADMIN permission");
-        Settings.Global.putInt(getContentResolver(),
-            Settings.Global.getBluetoothA2dpSrcPriorityKey(device.getAddress()),
-            priority);
-        Log.d(TAG,"Saved priority " + device + " = " + priority);
-        return true;
-    }
-
-    public int getPriority(BluetoothDevice device) {
-        enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
-                                       "Need BLUETOOTH_ADMIN permission");
-        int priority = Settings.Global.getInt(getContentResolver(),
-            Settings.Global.getBluetoothA2dpSrcPriorityKey(device.getAddress()),
-            BluetoothProfile.PRIORITY_UNDEFINED);
-        return priority;
-    }
-
-    synchronized boolean isA2dpPlaying(BluetoothDevice device) {
-        enforceCallingOrSelfPermission(BLUETOOTH_PERM,
-                                       "Need BLUETOOTH permission");
-        Log.d(TAG, "isA2dpPlaying(" + device + ")");
-        return mStateMachine.isPlaying(device);
-    }
-
     BluetoothAudioConfig getAudioConfig(BluetoothDevice device) {
         enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
         return mStateMachine.getAudioConfig(device);
@@ -232,21 +205,15 @@ public class A2dpSinkService extends ProfileService {
         }
 
         public boolean isA2dpPlaying(BluetoothDevice device) {
-            A2dpSinkService service = getService();
-            if (service == null) return false;
-            return service.isA2dpPlaying(device);
+            return false;
         }
 
         public boolean setPriority(BluetoothDevice device, int priority) {
-            A2dpSinkService service = getService();
-            if (service == null) return false;
-            return service.setPriority(device, priority);
+            return false;
         }
 
         public int getPriority(BluetoothDevice device) {
-            A2dpSinkService service = getService();
-            if (service == null) return BluetoothProfile.PRIORITY_UNDEFINED;
-            return service.getPriority(device);
+            return -1;
         }
 
         public BluetoothAudioConfig getAudioConfig(BluetoothDevice device) {

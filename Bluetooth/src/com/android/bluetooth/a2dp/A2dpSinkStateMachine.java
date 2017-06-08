@@ -106,7 +106,6 @@ final class A2dpSinkStateMachine extends StateMachine {
     private BluetoothDevice mCurrentDevice = null;
     private BluetoothDevice mTargetDevice = null;
     private BluetoothDevice mIncomingDevice = null;
-    private BluetoothDevice mPlayingDevice = null;
 
     private final HashMap<BluetoothDevice,BluetoothAudioConfig> mAudioConfigs
             = new HashMap<BluetoothDevice,BluetoothAudioConfig>();
@@ -524,7 +523,6 @@ final class A2dpSinkStateMachine extends StateMachine {
                                        BluetoothProfile.STATE_DISCONNECTED);
                         break;
                     }
-                    mPlayingDevice = null;
                     transitionTo(mPending);
                 }
                     break;
@@ -556,9 +554,6 @@ final class A2dpSinkStateMachine extends StateMachine {
             switch (state) {
                 case CONNECTION_STATE_DISCONNECTED:
                     mAudioConfigs.remove(device);
-                    if ((mPlayingDevice != null) && (device.equals(mPlayingDevice))) {
-                        mPlayingDevice = null;
-                    }
                     if (mCurrentDevice.equals(device)) {
                         broadcastConnectionState(mCurrentDevice, BluetoothProfile.STATE_DISCONNECTED,
                                                  BluetoothProfile.STATE_CONNECTED);
@@ -583,15 +578,11 @@ final class A2dpSinkStateMachine extends StateMachine {
             }
             switch (state) {
                 case AUDIO_STATE_STARTED:
-                    if (mPlayingDevice == null) {
-                        mPlayingDevice = device;
-                    }
                     broadcastAudioState(device, BluetoothA2dpSink.STATE_PLAYING,
                                         BluetoothA2dpSink.STATE_NOT_PLAYING);
                     break;
                 case AUDIO_STATE_REMOTE_SUSPEND:
                 case AUDIO_STATE_STOPPED:
-                    mPlayingDevice = null;
                     broadcastAudioState(device, BluetoothA2dpSink.STATE_NOT_PLAYING,
                                         BluetoothA2dpSink.STATE_PLAYING);
                     break;
@@ -651,15 +642,6 @@ final class A2dpSinkStateMachine extends StateMachine {
             }
         }
         return devices;
-    }
-
-    boolean isPlaying(BluetoothDevice device) {
-        synchronized(this) {
-            if ((mPlayingDevice != null) && (device.equals(mPlayingDevice))) {
-                return true;
-            }
-        }
-        return false;
     }
 
     boolean okToConnect(BluetoothDevice device) {
