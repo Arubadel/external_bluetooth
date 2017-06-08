@@ -23,6 +23,8 @@
 #include <glib/glib.h>
 #include <gio/gio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -100,6 +102,7 @@ static const struct StructureItem sample_struct[] = {
 	{"lost_symlink",		"nowhere",	G_FILE_TYPE_SYMBOLIC_LINK, G_FILE_CREATE_NONE, 0, 0, TEST_COPY | TEST_DELETE_NORMAL | TEST_OPEN | TEST_INVALID_SYMLINK},
   };
 
+static gboolean test_suite;
 static gboolean write_test;
 static gboolean verbose;
 static gboolean posix_compat;
@@ -123,7 +126,6 @@ create_empty_file (GFile * parent, const char *filename,
 		   GFileCreateFlags create_flags)
 {
   GFile *child;
-  gboolean res;
   GError *error;
   GFileOutputStream *outs;
 
@@ -135,7 +137,7 @@ create_empty_file (GFile * parent, const char *filename,
   g_assert_no_error (error);
   g_assert (outs != NULL);
   error = NULL;
-  res = g_output_stream_close (G_OUTPUT_STREAM (outs), NULL, &error);
+  g_output_stream_close (G_OUTPUT_STREAM (outs), NULL, &error);
   g_object_unref (outs);
   return child;
 }
@@ -181,7 +183,7 @@ test_create_structure (gconstpointer test_data)
   GError *error;
   GFileOutputStream *outs;
   GDataOutputStream *outds;
-  int i;
+  guint i;
   struct StructureItem item;
 
   g_assert (test_data != NULL);
@@ -220,6 +222,10 @@ test_create_structure (gconstpointer test_data)
 	       item.link_to);
 	  child = create_symlink (root, item.filename, item.link_to);
 	  break;
+        case G_FILE_TYPE_UNKNOWN:
+        case G_FILE_TYPE_SPECIAL:
+        case G_FILE_TYPE_SHORTCUT:
+        case G_FILE_TYPE_MOUNTABLE:
 	default:
 	  break;
 	}
@@ -385,7 +391,7 @@ test_initial_structure (gconstpointer test_data)
   gboolean res;
   GError *error;
   GFileInputStream *ins;
-  int i;
+  guint i;
   GFileInfo *info;
   guint32 size;
   guchar *buffer;
@@ -458,8 +464,8 @@ test_initial_structure (gconstpointer test_data)
 			     PATTERN_FILE_SIZE, NULL, &error);
       g_assert_no_error (error);
       total_read += read;
-      log ("      read %d bytes, total = %d of %d.\n", read, total_read,
-	   PATTERN_FILE_SIZE);
+      log ("      read %"G_GSSIZE_FORMAT" bytes, total = %"G_GSSIZE_FORMAT" of %d.\n",
+	   read, total_read, PATTERN_FILE_SIZE);
     }
   g_assert_cmpint (total_read, ==, PATTERN_FILE_SIZE);
 
@@ -486,7 +492,7 @@ traverse_recurse_dirs (GFile * parent, GFile * root)
   GFileInfo *info;
   GFile *descend;
   char *relative_path;
-  int i;
+  guint i;
   gboolean found;
 
   g_assert (root != NULL);
@@ -498,6 +504,8 @@ traverse_recurse_dirs (GFile * parent, GFile * root)
 			       &error);
   g_assert (enumerator != NULL);
   g_assert_no_error (error);
+
+  g_assert (g_file_enumerator_get_container (enumerator) == parent);
 
   error = NULL;
   info = g_file_enumerator_next_file (enumerator, NULL, &error);
@@ -538,6 +546,9 @@ traverse_recurse_dirs (GFile * parent, GFile * root)
   res = g_file_enumerator_close (enumerator, NULL, &error);
   g_assert_cmpint (res, ==, TRUE);
   g_assert_no_error (error);
+  g_assert (g_file_enumerator_is_closed (enumerator));
+
+  g_object_unref (enumerator);
 }
 
 static void
@@ -571,7 +582,7 @@ test_enumerate (gconstpointer test_data)
   GError *error;
   GFileEnumerator *enumerator;
   GFileInfo *info;
-  int i;
+  guint i;
   struct StructureItem item;
 
 
@@ -635,6 +646,8 @@ test_enumerate (gconstpointer test_data)
 	      res = g_file_enumerator_close (enumerator, NULL, &error);
 	      g_assert_cmpint (res, ==, TRUE);
 	      g_assert_no_error (error);
+
+              g_object_unref (enumerator);
 	    }
 	  g_object_unref (child);
 	}
@@ -688,10 +701,7 @@ do_copy_move (GFile * root, struct StructureItem item, const char *target_dir,
 	   (extra_flags == TEST_TARGET_IS_FILE))
     {
       g_assert_cmpint (res, ==, FALSE);
-      if (item.file_type == G_FILE_TYPE_DIRECTORY)
-	g_assert_error (error, G_IO_ERROR, G_IO_ERROR_WOULD_RECURSE);
-      else
-	g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_DIRECTORY);
+      g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_DIRECTORY);
     }
   /*  source file is directory  */
   else if ((item.extra_flags & TEST_COPY_ERROR_RECURSE) ==
@@ -711,8 +721,17 @@ do_copy_move (GFile * root, struct StructureItem item, const char *target_dir,
   else if (((item.extra_flags & TEST_NO_ACCESS) == TEST_NO_ACCESS) ||
 	   (extra_flags == TEST_NO_ACCESS))
     {
-      g_assert_cmpint (res, ==, FALSE);
-      g_assert_error (error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED);
+      /* This works for root, see bug #552912 */
+      if (test_suite && getuid () == 0)
+	{
+	  g_assert_cmpint (res, ==, TRUE);
+	  g_assert_no_error (error);
+	}
+      else
+	{
+	  g_assert_cmpint (res, ==, FALSE);
+	  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED);
+	}
     }
   /*  no error should be found, all exceptions defined above  */
   else
@@ -735,7 +754,7 @@ test_copy_move (gconstpointer test_data)
 {
   GFile *root;
   gboolean res;
-  int i;
+  guint i;
   struct StructureItem item;
 
   log ("\n");
@@ -799,7 +818,7 @@ test_create (gconstpointer test_data)
   GFile *root, *child;
   gboolean res;
   GError *error;
-  int i;
+  guint i;
   struct StructureItem item;
   GFileOutputStream *os;
 
@@ -885,7 +904,7 @@ test_open (gconstpointer test_data)
   GFile *root, *child;
   gboolean res;
   GError *error;
-  int i;
+  guint i;
   struct StructureItem item;
   GFileInputStream *input_stream;
 
@@ -956,7 +975,7 @@ test_delete (gconstpointer test_data)
   GFile *child;
   gboolean res;
   GError *error;
-  int i;
+  guint i;
   struct StructureItem item;
 
   g_assert (test_data != NULL);
@@ -1067,6 +1086,8 @@ cleanup_dir_recurse (GFile *parent, GFile *root)
   res = g_file_enumerator_close (enumerator, NULL, &error);
   g_assert_cmpint (res, ==, TRUE);
   g_assert_no_error (error);
+
+  g_object_unref (enumerator);
 }
 
 static void
@@ -1092,7 +1113,7 @@ int
 main (int argc, char *argv[])
 {
   static gboolean only_create_struct;
-  static char *target_path;
+  const char *target_path;
   GError *error;
   GOptionContext *context;
 
@@ -1107,6 +1128,7 @@ main (int argc, char *argv[])
     {NULL}
   };
 
+  test_suite = FALSE;
   verbose = FALSE;
   write_test = FALSE;
   only_create_struct = FALSE;
@@ -1120,6 +1142,7 @@ main (int argc, char *argv[])
   /*  no extra parameters specified, assume we're executed from glib test suite  */ 
   if (argc < 2)
     {
+	  test_suite = TRUE;
 	  verbose = TRUE;
 	  write_test = TRUE;
 	  only_create_struct = FALSE;

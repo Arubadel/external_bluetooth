@@ -26,12 +26,10 @@
 
 #include <glib.h>
 
-#include "gcancellable.h"
-#include "gioerror.h"
+#include "gio/gcancellable.h"
+#include "gio/gioerror.h"
 #include "gwinhttpfileoutputstream.h"
 #include "glibintl.h"
-
-#include "gioalias.h"
 
 struct _GWinHttpFileOutputStream
 {
@@ -85,14 +83,14 @@ g_winhttp_file_output_stream_init (GWinHttpFileOutputStream *info)
 {
 }
 
-/**
+/*
  * g_winhttp_file_output_stream_new:
  * @file: the GWinHttpFile being read
  * @connection: handle to the HTTP connection, as from WinHttpConnect()
  * @request: handle to the HTTP request, as from WinHttpOpenRequest
  *
  * Returns: #GFileOutputStream for the given request
- **/
+ */
 GFileOutputStream *
 _g_winhttp_file_output_stream_new (GWinHttpFile *file,
                                    HINTERNET     connection)

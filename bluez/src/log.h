@@ -22,6 +22,7 @@
  */
 
 void info(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void warn(const char *format, ...) __attribute__((format(printf, 1, 2)));
 void error(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
 void btd_debug(const char *format, ...) __attribute__((format(printf, 1, 2)));
@@ -37,6 +38,9 @@ struct btd_debug_desc {
 	unsigned int flags;
 } __attribute__((aligned(8)));
 
+void __btd_enable_debug(struct btd_debug_desc *start,
+					struct btd_debug_desc *stop);
+
 /**
  * DBG:
  * @fmt: format string
@@ -51,6 +55,5 @@ struct btd_debug_desc {
 		.file = __FILE__, .flags = BTD_DEBUG_FLAG_DEFAULT, \
 	}; \
 	if (__btd_debug_desc.flags & BTD_DEBUG_FLAG_PRINT) \
-		btd_debug("%s:%s() " fmt,  __FILE__, __FUNCTION__ , ## arg); \
+		btd_debug("%s:%s() " fmt,  __FILE__, __func__ , ## arg); \
 } while (0)
-

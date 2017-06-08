@@ -29,7 +29,6 @@
 #include "gioerror.h"
 #include "glibintl.h"
 
-#include "gioalias.h"
 
 /**
  * SECTION:gthemedicon
@@ -208,8 +207,8 @@ g_themed_icon_class_init (GThemedIconClass *klass)
    */
   g_object_class_install_property (gobject_class, PROP_NAME,
                                    g_param_spec_string ("name",
-                                                        _("name"),
-                                                        _("The name of the icon"),
+                                                        P_("name"),
+                                                        P_("The name of the icon"),
                                                         NULL,
                                                         G_PARAM_CONSTRUCT_ONLY | G_PARAM_WRITABLE | G_PARAM_STATIC_NAME | G_PARAM_STATIC_BLURB | G_PARAM_STATIC_NICK));
 
@@ -220,8 +219,8 @@ g_themed_icon_class_init (GThemedIconClass *klass)
    */
   g_object_class_install_property (gobject_class, PROP_NAMES,
                                    g_param_spec_boxed ("names",
-                                                       _("names"),
-                                                       _("An array containing the icon names"),
+                                                       P_("names"),
+                                                       P_("An array containing the icon names"),
                                                        G_TYPE_STRV,
                                                        G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_STATIC_BLURB | G_PARAM_STATIC_NICK));
 
@@ -246,8 +245,8 @@ g_themed_icon_class_init (GThemedIconClass *klass)
    */
   g_object_class_install_property (gobject_class, PROP_USE_DEFAULT_FALLBACKS,
                                    g_param_spec_boolean ("use-default-fallbacks",
-                                                         _("use default fallbacks"),
-                                                         _("Whether to use default fallbacks found by shortening the name at '-' characters. Ignores names after the first if multiple names are given."),
+                                                         P_("use default fallbacks"),
+                                                         P_("Whether to use default fallbacks found by shortening the name at '-' characters. Ignores names after the first if multiple names are given."),
                                                          FALSE,
                                                          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_STATIC_BLURB | G_PARAM_STATIC_NICK));
 }
@@ -264,7 +263,7 @@ g_themed_icon_init (GThemedIcon *themed)
  * 
  * Creates a new themed icon for @iconname.
  * 
- * Returns: a new #GThemedIcon.
+ * Returns: (transfer full) (type GThemedIcon): a new #GThemedIcon.
  **/
 GIcon *
 g_themed_icon_new (const char *iconname)
@@ -276,19 +275,19 @@ g_themed_icon_new (const char *iconname)
 
 /**
  * g_themed_icon_new_from_names:
- * @iconnames: an array of strings containing icon names.
+ * @iconnames: (array length=len): an array of strings containing icon names.
  * @len: the length of the @iconnames array, or -1 if @iconnames is 
  *     %NULL-terminated
  * 
  * Creates a new themed icon for @iconnames.
  * 
- * Returns: a new #GThemedIcon
+ * Returns: (transfer full) (type GThemedIcon): a new #GThemedIcon
  **/
 GIcon *
 g_themed_icon_new_from_names (char **iconnames,
                               int    len)
 {
-  GIcon *icon = icon;
+  GIcon *icon;
 
   g_return_val_if_fail (iconnames != NULL, NULL);
 
@@ -334,7 +333,7 @@ g_themed_icon_new_from_names (char **iconnames,
  * icon2 = g_themed_icon_new_with_default_fallbacks ("gnome-dev-cdrom-audio");
  * ]|
  *
- * Returns: a new #GThemedIcon.
+ * Returns: (transfer full) (type GThemedIcon): a new #GThemedIcon.
  */
 GIcon *
 g_themed_icon_new_with_default_fallbacks (const char *iconname)
@@ -348,11 +347,11 @@ g_themed_icon_new_with_default_fallbacks (const char *iconname)
 /**
  * g_themed_icon_get_names:
  * @icon: a #GThemedIcon.
- * 
+ *
  * Gets the names of icons from within @icon.
- * 
- * Returns: a list of icon names.
- **/
+ *
+ * Returns: (transfer none): a list of icon names.
+ */
 const char * const *
 g_themed_icon_get_names (GThemedIcon *icon)
 {
@@ -521,6 +520,3 @@ g_themed_icon_icon_iface_init (GIconIface *iface)
   iface->to_tokens = g_themed_icon_to_tokens;
   iface->from_tokens = g_themed_icon_from_tokens;
 }
-
-#define __G_THEMED_ICON_C__
-#include "gioaliasdef.c"

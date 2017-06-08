@@ -79,6 +79,7 @@ gpointer expected_obj;
 gpointer expected_data;
 gboolean callback_happened;
 
+#if 0
 static void
 in_cb (GObject      *object,
        GAsyncResult *result,
@@ -167,7 +168,6 @@ out_cb (GObject      *object,
   callback_happened = TRUE;
 }
 
-
 static void
 test_output_async (void)
 {
@@ -221,7 +221,7 @@ test_output_async (void)
   g_assert (g_output_stream_is_closed (base));
   g_object_unref (base);
 }
-
+#endif
 
 int
 main (int argc, char **argv)
@@ -232,8 +232,10 @@ main (int argc, char **argv)
   g_type_init ();
   g_test_add_func ("/filter-stream/input", test_input_filter);
   g_test_add_func ("/filter-stream/output", test_output_filter);
+#if 0
   g_test_add_func ("/filter-stream/async-input", test_input_async);
   g_test_add_func ("/filter-stream/async-output", test_output_async);
+#endif
 
   return g_test_run();
 }

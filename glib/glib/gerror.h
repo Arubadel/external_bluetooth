@@ -18,17 +18,28 @@
  *   Boston, MA 02111-1307, USA.
  */
 
-#if defined(G_DISABLE_SINGLE_INCLUDES) && !defined (__GLIB_H_INSIDE__) && !defined (GLIB_COMPILATION)
+#if !defined (__GLIB_H_INSIDE__) && !defined (GLIB_COMPILATION)
 #error "Only <glib.h> can be included directly."
 #endif
 
 #ifndef __G_ERROR_H__
 #define __G_ERROR_H__
 
+#include <stdarg.h>
+
 #include <glib/gquark.h>
 
 G_BEGIN_DECLS
 
+/**
+ * GError:
+ * @domain: error domain, e.g. #G_FILE_ERROR
+ * @code: error code, e.g. %G_FILE_ERROR_NOENT
+ * @message: human-readable informative error message
+ *
+ * The <structname>GError</structname> structure contains
+ * information about an error that has occurred.
+ */
 typedef struct _GError GError;
 
 struct _GError
@@ -46,6 +57,10 @@ GError*  g_error_new           (GQuark         domain,
 GError*  g_error_new_literal   (GQuark         domain,
                                 gint           code,
                                 const gchar   *message);
+GError*  g_error_new_valist    (GQuark         domain,
+                                gint           code,
+                                const gchar   *format,
+                                va_list        args);
 
 void     g_error_free          (GError        *error);
 GError*  g_error_copy          (const GError  *error);

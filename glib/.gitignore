@@ -1,6 +1,7 @@
 # for all subdirectories
 Makefile.in
 Makefile
+TAGS
 .libs
 .deps
 *.o
@@ -9,6 +10,13 @@ Makefile
 *.pc
 .*.swp
 .sw?
+*.rc
+*.gcno
+*.gcda
+*.gcov
+*.sourcefiles
+*.stp
+*.exe
 
 # autofoo stuff here
 compile
@@ -19,8 +27,16 @@ autom4te.cache
 stamp-*
 libtool
 ltmain.sh
+mingw32-config.cache
 missing
 install-sh
 glib-gettextize
 glib-zip
 gtk-doc.make
+py-compile
+
+INSTALL
+README
+ChangeLog
+/glib-lcov.info
+/glib-lcov/

@@ -27,22 +27,9 @@
 
 G_BEGIN_DECLS
 
-typedef struct
-{
-  gpointer       async_object;
-  GError *       error;
-  gpointer       user_data;
-} GAsyncResultData;
-
-typedef gboolean (*GFDSourceFunc) (gpointer     user_data,
+typedef gboolean (*GFDSourceFunc) (int          fd,
 				   GIOCondition condition,
-				   int          fd);
-
-void     _g_queue_async_result (GAsyncResultData *result,
-				gpointer         async_object,
-				GError          *error,
-				gpointer         user_data,
-				GSourceFunc      source_func);
+				   gpointer     user_data);
 
 GSource *_g_fd_source_new      (int              fd,
 				gushort          events,

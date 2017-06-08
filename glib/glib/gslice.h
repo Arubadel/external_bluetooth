@@ -17,16 +17,12 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#if defined(G_DISABLE_SINGLE_INCLUDES) && !defined (__GLIB_H_INSIDE__) && !defined (GLIB_COMPILATION)
+#if !defined (__GLIB_H_INSIDE__) && !defined (GLIB_COMPILATION)
 #error "Only <glib.h> can be included directly."
 #endif
 
 #ifndef __G_SLICE_H__
 #define __G_SLICE_H__
-
-#ifndef __G_MEM_H__
-#error Include <glib.h> instead of <gslice.h>
-#endif
 
 #include <glib/gtypes.h>
 

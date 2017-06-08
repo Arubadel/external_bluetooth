@@ -31,7 +31,6 @@
 #include "gioerror.h"
 #include "glibintl.h"
 
-#include "gioalias.h"
 
 /**
  * SECTION:gfileoutputstream
@@ -45,15 +44,14 @@
  * GFileOutputStream implements #GSeekable, which allows the output 
  * stream to jump to arbitrary positions in the file and to truncate
  * the file, provided the filesystem of the file supports these 
- * operations. In addition to the generic g_seekable_ API, 
- * GFileOutputStream has its own API for seeking and positioning. 
- * To find the position of a file output stream, use 
- * g_file_output_stream_tell(). To find out if a file output 
- * stream supports seeking, use g_file_output_stream_can_seek().
- * To position a file output stream, use g_file_output_stream_seek().
- * To find out if a file output stream supports truncating, use
- * g_file_output_stream_can_truncate(). To truncate a file output
- * stream, use g_file_output_stream_truncate().
+ * operations.
+ *
+ * To find the position of a file output stream, use g_seekable_tell().
+ * To find out if a file output stream supports seeking, use
+ * g_seekable_can_seek().To position a file output stream, use
+ * g_seekable_seek(). To find out if a file output stream supports
+ * truncating, use g_seekable_can_truncate(). To truncate a file output
+ * stream, use g_seekable_truncate().
  **/
 
 static void       g_file_output_stream_seekable_iface_init    (GSeekableIface       *iface);
@@ -139,7 +137,7 @@ g_file_output_stream_init (GFileOutputStream *stream)
  * was cancelled, the error %G_IO_ERROR_CANCELLED will be set, and %NULL will 
  * be returned. 
  * 
- * Returns: a #GFileInfo for the @stream, or %NULL on error.
+ * Returns: (transfer full): a #GFileInfo for the @stream, or %NULL on error.
  **/
 GFileInfo *
 g_file_output_stream_query_info (GFileOutputStream      *stream,
@@ -227,11 +225,10 @@ g_file_output_stream_query_info_async (GFileOutputStream     *stream,
  
   if (!g_output_stream_set_pending (output_stream, &error))
     {
-      g_simple_async_report_gerror_in_idle (G_OBJECT (stream),
+      g_simple_async_report_take_gerror_in_idle (G_OBJECT (stream),
 					    callback,
 					    user_data,
 					    error);
-      g_error_free (error);
       return;
     }
 
@@ -252,7 +249,7 @@ g_file_output_stream_query_info_async (GFileOutputStream     *stream,
  * Finalizes the asynchronous query started 
  * by g_file_output_stream_query_info_async().
  * 
- * Returns: A #GFileInfo for the finished query.
+ * Returns: (transfer full): A #GFileInfo for the finished query.
  **/
 GFileInfo *
 g_file_output_stream_query_info_finish (GFileOutputStream     *stream,
@@ -526,10 +523,7 @@ query_info_async_thread (GSimpleAsyncResult *res,
                          _("Stream doesn't support query_info"));
 
   if (info == NULL)
-    {
-      g_simple_async_result_set_from_error (res, error);
-      g_error_free (error);
-    }
+    g_simple_async_result_take_error (res, error);
   else
     data->info = info;
 }
@@ -571,6 +565,3 @@ g_file_output_stream_real_query_info_finish (GFileOutputStream     *stream,
   
   return NULL;
 }
-
-#define __G_FILE_OUTPUT_STREAM_C__
-#include "gioaliasdef.c"
