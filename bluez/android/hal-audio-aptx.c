@@ -26,7 +26,7 @@
 #include "hal-log.h"
 #include "profiles/audio/a2dp-codecs.h"
 
-#define APTX_SO_NAME	"libbt-aptx.so"
+#define APTX_SO_NAME	"libbt-aptx-4.0.3.so"
 
 struct aptx_data {
 	a2dp_aptx_t aptx;
