@@ -2,9 +2,10 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
+ *  Copyright (C) 2000-2001  Qualcomm Incorporated
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
  *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
- *  Copyright (C) 2000-2001, 2010, 2011 Code Aurora Forum. All rights reserved.
+ *
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -37,16 +38,16 @@
 #include <syslog.h>
 #include <termios.h>
 #include <time.h>
+#include <poll.h>
 #include <sys/time.h>
-#include <sys/poll.h>
 #include <sys/param.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/hci_lib.h>
+#include "lib/bluetooth.h"
+#include "lib/hci.h"
+#include "lib/hci_lib.h"
 
 #include "hciattach.h"
 
@@ -350,6 +351,8 @@ static void bcsp_tshy_sig_alarm(int sig)
 	unsigned char bcsp_sync_pkt[10] = {0xc0,0x00,0x41,0x00,0xbe,0xda,0xdc,0xed,0xed,0xc0};
 	static int retries = 0;
 
+	printf("[hciattach] Shy state. Send sync.\n"); //SS_BLUETOOTH(is80.hwang) 2012.02.10 : for CSR BT Initialization
+
 	if (retries < bcsp_max_retries) {
 		retries++;
 		if (write(serial_fd, &bcsp_sync_pkt, 10) < 0)
@@ -367,6 +370,8 @@ static void bcsp_tconf_sig_alarm(int sig)
 {
 	unsigned char bcsp_conf_pkt[10] = {0xc0,0x00,0x41,0x00,0xbe,0xad,0xef,0xac,0xed,0xc0};
 	static int retries = 0;
+
+	printf("[hciattach] Curious state. Send Conf.\n"); //SS_BLUETOOTH(is80.hwang) 2012.02.10 : for CSR BT Initialization
 
 	if (retries < bcsp_max_retries){
 		retries++;
@@ -399,6 +404,7 @@ static int bcsp(int fd, struct uart_t *u, struct termios *ti)
 	}
 
 	ti->c_cflag |= PARENB;
+	/*ti->c_cflag &= ~(PARODD);*/
 	ti->c_cflag |= PARODD;
 
 	if (tcsetattr(fd, TCSANOW, ti) < 0) {
@@ -504,6 +510,8 @@ static int bcsp(int fd, struct uart_t *u, struct termios *ti)
 		if (len < 0)
 			return -errno;
 	}
+
+	printf("[hciattach] Garrulous state.\n"); //SS_BLUETOOTH(is80.hwang) 2012.02.10 : for CSR BT Initialization
 
 	/* State = garrulous */
 
@@ -777,12 +785,12 @@ static int swave(int fd, struct uart_t *u, struct termios *ti)
 	nanosleep(&tm, NULL);
 
 	// now the uart baud rate on the silicon wave module is set and effective.
-	// change our own baud rate as well. Then there is a reset event comming in
+	// change our own baud rate as well. Then there is a reset event coming in
  	// on the *new* baud rate. This is *undocumented*! The packet looks like this:
 	// 04 FF 01 0B (which would make that a confirmation of 0x0B = "Param
 	// subcommand class". So: change to new baud rate, read with timeout, parse
 	// data, error handling. BTW: all param access in Silicon Wave is done this way.
-	// Maybe this code would belong in a seperate file, or at least code reuse...
+	// Maybe this code would belong in a separate file, or at least code reuse...
 
 	return 0;
 }
@@ -1033,39 +1041,6 @@ static int bcm2035(int fd, struct uart_t *u, struct termios *ti)
 	return 0;
 }
 
-static int qcom_uart_init(int fd, struct uart_t *u, struct termios *ti)
-{
-	int flags = 0;
-
-	if (ioctl(fd, TIOCMGET, &flags) < 0){
-		perror("TIOCMGET failed in init \n");
-		return -1;
-	}
-	flags &= ~TIOCM_RTS;
-	if (ioctl(fd, TIOCMSET, &flags) < 0){
-		perror("TIOCMSET failed in init: HW Flow-off error  \n");
-		return -1;
-	}
-
-	return 0;
-}
-
-static int qcom_uart_post(int fd, struct uart_t *u, struct termios *ti)
-{
-	int flags = 0;
-
-	if (ioctl(fd, TIOCMGET, &flags) < 0){
-		perror("TIOCMGET failed in post \n");
-		return -1;
-	}
-	flags &= ~TIOCM_RTS;
-	if (ioctl(fd, TIOCMSET, &flags) < 0){
-		perror("TIOCMSET failed in post: HW Flow-on error \n");
-		return -1;
-	}
-	return 0;
-}
-
 struct uart_t uart[] = {
 	{ "any",        0x0000, 0x0000, HCI_UART_H4,   115200, 115200,
 				FLOW_CTL, DISABLE_PM, NULL, NULL     },
@@ -1169,9 +1144,6 @@ struct uart_t uart[] = {
 	{ "qualcomm",   0x0000, 0x0000, HCI_UART_H4,   115200, 115200,
 			FLOW_CTL, DISABLE_PM, NULL, qualcomm, NULL },
 
-	{ "qualcomm-ibs", 0x0000, 0x0000, HCI_UART_IBS,  115200, 115200,
-		FLOW_CTL, DISABLE_PM, NULL, qcom_uart_init, qcom_uart_post },
-
 	{ NULL, 0 }
 };
 
@@ -1215,7 +1187,7 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 
 	if (tcgetattr(fd, &ti) < 0) {
 		perror("Can't get port settings");
-		return -1;
+		goto fail;
 	}
 
 	cfmakeraw(&ti);
@@ -1228,13 +1200,13 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 
 	if (tcsetattr(fd, TCSANOW, &ti) < 0) {
 		perror("Can't set port settings");
-		return -1;
+		goto fail;
 	}
 
 	/* Set initial baudrate */
 	if (set_speed(fd, &ti, u->init_speed) < 0) {
 		perror("Can't set initial baud rate");
-		return -1;
+		goto fail;
 	}
 
 	tcflush(fd, TCIOFLUSH);
@@ -1245,37 +1217,45 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 	}
 
 	if (u->init && u->init(fd, u, &ti) < 0)
-		return -1;
+		goto fail;
+
+	// [GGSM][sc47.yun] Fixed kernel panic issue at HCI tty command. So Delay initial UART setup.
+	usleep(500000);
+	// end. [GGSM][sc47.yun] Fixed kernel panic issue at HCI tty command
 
 	tcflush(fd, TCIOFLUSH);
 
 	/* Set actual baudrate */
 	if (set_speed(fd, &ti, u->speed) < 0) {
 		perror("Can't set baud rate");
-		return -1;
+		goto fail;
 	}
 
 	/* Set TTY to N_HCI line discipline */
 	i = N_HCI;
 	if (ioctl(fd, TIOCSETD, &i) < 0) {
 		perror("Can't set line discipline");
-		return -1;
+		goto fail;
 	}
 
 	if (flags && ioctl(fd, HCIUARTSETFLAGS, flags) < 0) {
 		perror("Can't set UART flags");
-		return -1;
+		goto fail;
 	}
 
 	if (ioctl(fd, HCIUARTSETPROTO, u->proto) < 0) {
 		perror("Can't set device");
-		return -1;
+		goto fail;
 	}
 
 	if (u->post && u->post(fd, u, &ti) < 0)
-		return -1;
+		goto fail;
 
 	return fd;
+
+fail:
+	close(fd);
+	return -1;
 }
 
 static void usage(void)
@@ -1358,6 +1338,12 @@ int main(int argc, char *argv[])
 			dev[0] = 0;
 			if (!strchr(opt, '/'))
 				strcpy(dev, "/dev/");
+
+			if (strlen(opt) > PATH_MAX - (strlen(dev) + 1)) {
+				fprintf(stderr, "Invalid serial device\n");
+				exit(1);
+			}
+
 			strcat(dev, opt);
 			break;
 

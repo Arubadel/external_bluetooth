@@ -28,23 +28,15 @@
 #endif
 
 #include <stdio.h>
-#include <errno.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/ioctl.h>
-
-#include <bluetooth/bluetooth.h>
+#include <stdint.h>
 
 #include <glib.h>
 #include <dbus/dbus.h>
-#include <gdbus.h>
+
+#include "gdbus/gdbus.h"
 
 #include "log.h"
 
-#include "adapter.h"
-#include "manager.h"
-#include "event.h"
 #include "dbus-common.h"
 
 static DBusConnection *connection = NULL;
@@ -91,8 +83,8 @@ static void append_array_variant(DBusMessageIter *iter, int type, void *val,
 	dbus_message_iter_close_container(iter, &variant);
 }
 
-void dict_append_entry(DBusMessageIter *dict,
-			const char *key, int type, void *val)
+void dict_append_basic(DBusMessageIter *dict, int key_type, const void *key,
+						int type, void *val)
 {
 	DBusMessageIter entry;
 
@@ -105,9 +97,32 @@ void dict_append_entry(DBusMessageIter *dict,
 	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
 							NULL, &entry);
 
-	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
+	dbus_message_iter_append_basic(&entry, key_type, key);
 
 	append_variant(&entry, type, val);
+
+	dbus_message_iter_close_container(dict, &entry);
+
+}
+
+void dict_append_entry(DBusMessageIter *dict,
+			const char *key, int type, void *val)
+{
+	dict_append_basic(dict, DBUS_TYPE_STRING, &key, type, val);
+}
+
+void dict_append_basic_array(DBusMessageIter *dict, int key_type,
+					const void *key, int type, void *val,
+					int n_elements)
+{
+	DBusMessageIter entry;
+
+	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
+						NULL, &entry);
+
+	dbus_message_iter_append_basic(&entry, key_type, key);
+
+	append_array_variant(&entry, type, val, n_elements);
 
 	dbus_message_iter_close_container(dict, &entry);
 }
@@ -115,68 +130,8 @@ void dict_append_entry(DBusMessageIter *dict,
 void dict_append_array(DBusMessageIter *dict, const char *key, int type,
 			void *val, int n_elements)
 {
-	DBusMessageIter entry;
-
-	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
-						NULL, &entry);
-
-	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
-
-	append_array_variant(&entry, type, val, n_elements);
-
-	dbus_message_iter_close_container(dict, &entry);
-}
-
-dbus_bool_t emit_property_changed(DBusConnection *conn,
-					const char *path,
-					const char *interface,
-					const char *name,
-					int type, void *value)
-{
-	DBusMessage *signal;
-	DBusMessageIter iter;
-
-	signal = dbus_message_new_signal(path, interface, "PropertyChanged");
-
-	if (!signal) {
-		error("Unable to allocate new %s.PropertyChanged signal",
-				interface);
-		return FALSE;
-	}
-
-	dbus_message_iter_init_append(signal, &iter);
-
-	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &name);
-
-	append_variant(&iter, type, value);
-
-	return g_dbus_send_message(conn, signal);
-}
-
-dbus_bool_t emit_array_property_changed(DBusConnection *conn,
-					const char *path,
-					const char *interface,
-					const char *name,
-					int type, void *value, int num)
-{
-	DBusMessage *signal;
-	DBusMessageIter iter;
-
-	signal = dbus_message_new_signal(path, interface, "PropertyChanged");
-
-	if (!signal) {
-		error("Unable to allocate new %s.PropertyChanged signal",
-				interface);
-		return FALSE;
-	}
-
-	dbus_message_iter_init_append(signal, &iter);
-
-	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &name);
-
-	append_array_variant(&iter, type, value, num);
-
-	return g_dbus_send_message(conn, signal);
+	dict_append_basic_array(dict, DBUS_TYPE_STRING, &key, type, val,
+								n_elements);
 }
 
 void set_dbus_connection(DBusConnection *conn)
@@ -184,7 +139,7 @@ void set_dbus_connection(DBusConnection *conn)
 	connection = conn;
 }
 
-DBusConnection *get_dbus_connection(void)
+DBusConnection *btd_get_dbus_connection(void)
 {
 	return connection;
 }
@@ -247,6 +202,41 @@ const char *class_to_icon(uint32_t class)
 			return "printer";
 		if (class & 0x20)
 			return "camera-photo";
+		break;
+	}
+
+	return NULL;
+}
+
+const char *gap_appearance_to_icon(uint16_t appearance)
+{
+	switch ((appearance & 0xffc0) >> 6) {
+	case 0x00:
+		return "unknown";
+	case 0x01:
+		return "phone";
+	case 0x02:
+		return "computer";
+	case 0x05:
+		return "video-display";
+	case 0x0a:
+		return "multimedia-player";
+	case 0x0b:
+		return "scanner";
+	case 0x0f: /* HID Generic */
+		switch (appearance & 0x3f) {
+		case 0x01:
+			return "input-keyboard";
+		case 0x02:
+			return "input-mouse";
+		case 0x03:
+		case 0x04:
+			return "input-gaming";
+		case 0x05:
+			return "input-tablet";
+		case 0x08:
+			return "scanner";
+		}
 		break;
 	}
 

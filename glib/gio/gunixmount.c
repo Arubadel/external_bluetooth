@@ -45,7 +45,6 @@
 /* for BUFSIZ */
 #include <stdio.h>
 
-#include "gioalias.h"
 
 struct _GUnixMount {
   GObject parent;
@@ -240,7 +239,7 @@ typedef struct {
   GCancellable *cancellable;
   int error_fd;
   GIOChannel *error_channel;
-  guint error_channel_source_id;
+  GSource *error_channel_source;
   GString *error_string;
   gchar **argv;
 } UnmountEjectOp;
@@ -274,7 +273,11 @@ eject_unmount_cb (GPid pid, gint status, gpointer user_data)
   g_simple_async_result_complete (simple);
   g_object_unref (simple);
 
-  g_source_remove (data->error_channel_source_id);
+  if (data->error_channel_source)
+    {
+      g_source_destroy (data->error_channel_source);
+      g_source_unref (data->error_channel_source);
+    }
   g_io_channel_unref (data->error_channel);
   g_string_free (data->error_string, TRUE);
   g_strfreev (data->argv);
@@ -312,6 +315,12 @@ read:
 
       g_string_append (data->error_string, error->message);
       g_error_free (error);
+
+      if (data->error_channel_source)
+        {
+          g_source_unref (data->error_channel_source);
+          data->error_channel_source = NULL;
+        }
       return FALSE;
     }
 
@@ -323,6 +332,7 @@ eject_unmount_do_cb (gpointer user_data)
 {
   UnmountEjectOp *data = (UnmountEjectOp *) user_data;
   GPid child_pid;
+  GSource *child_watch;
   GError *error = NULL;
 
   if (!g_spawn_async_with_pipes (NULL,         /* working dir */
@@ -347,13 +357,20 @@ eject_unmount_do_cb (gpointer user_data)
   if (error != NULL)
     goto handle_error;
 
-  data->error_channel_source_id = g_io_add_watch (data->error_channel, G_IO_IN, eject_unmount_read_error, data);
-  g_child_watch_add (child_pid, eject_unmount_cb, data);
+  data->error_channel_source = g_io_create_watch (data->error_channel, G_IO_IN);
+  g_source_set_callback (data->error_channel_source,
+                         (GSourceFunc) eject_unmount_read_error, data, NULL);
+  g_source_attach (data->error_channel_source, g_main_context_get_thread_default ());
+
+  child_watch = g_child_watch_source_new (child_pid);
+  g_source_set_callback (child_watch, (GSourceFunc) eject_unmount_cb, data, NULL);
+  g_source_attach (child_watch, g_main_context_get_thread_default ());
+  g_source_unref (child_watch);
 
 handle_error:
   if (error != NULL) {
     GSimpleAsyncResult *simple;
-    simple = g_simple_async_result_new_from_error (G_OBJECT (data->unix_mount),
+    simple = g_simple_async_result_new_take_error (G_OBJECT (data->unix_mount),
                                                    data->callback,
                                                    data->user_data,
                                                    error);
@@ -367,11 +384,10 @@ handle_error:
       g_io_channel_unref (data->error_channel);
 
     g_strfreev (data->argv);
-    g_error_free (error);
     g_free (data);
   }
 
-  return FALSE;
+  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -393,6 +409,8 @@ eject_unmount_do (GMount              *mount,
 
   if (unix_mount->volume_monitor != NULL)
     g_signal_emit_by_name (unix_mount->volume_monitor, "mount-pre-unmount", mount);
+
+  g_signal_emit_by_name (mount, "pre-unmount", 0);
 
   g_timeout_add (500, (GSourceFunc) eject_unmount_do_cb, data);
 }

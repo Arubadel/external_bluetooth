@@ -27,8 +27,6 @@
 #include "string.h"
 #include "glibintl.h"
 
-#include <gioalias.h>
-
 /**
  * SECTION:gbufferedoutputstream
  * @short_description: Buffered Output Stream
@@ -474,12 +472,10 @@ g_buffered_output_stream_flush (GOutputStream  *stream,
                                 GError        **error)
 {
   GBufferedOutputStream *bstream;
-  GBufferedOutputStreamPrivate *priv;
   GOutputStream                *base_stream;
   gboolean res;
 
   bstream = G_BUFFERED_OUTPUT_STREAM (stream);
-  priv = bstream->priv;
   base_stream = G_FILTER_OUTPUT_STREAM (stream)->base_stream;
 
   res = flush_buffer (bstream, cancellable, error);
@@ -498,23 +494,20 @@ g_buffered_output_stream_close (GOutputStream  *stream,
                                 GError        **error)
 {
   GBufferedOutputStream        *bstream;
-  GBufferedOutputStreamPrivate *priv;
   GOutputStream                *base_stream;
   gboolean                      res;
 
   bstream = G_BUFFERED_OUTPUT_STREAM (stream);
-  priv = bstream->priv;
   base_stream = G_FILTER_OUTPUT_STREAM (bstream)->base_stream;
-
   res = flush_buffer (bstream, cancellable, error);
 
   if (g_filter_output_stream_get_close_base_stream (G_FILTER_OUTPUT_STREAM (stream)))
     {
       /* report the first error but still close the stream */
       if (res)
-        res = g_output_stream_close (base_stream, cancellable, error); 
+        res = g_output_stream_close (base_stream, cancellable, error);
       else
-        g_output_stream_close (base_stream, cancellable, NULL); 
+        g_output_stream_close (base_stream, cancellable, NULL);
     }
 
   return res;
@@ -582,10 +575,7 @@ flush_buffer_thread (GSimpleAsyncResult *result,
     }
 
   if (res == FALSE)
-    {
-      g_simple_async_result_set_from_error (result, error);
-      g_error_free (error);
-    }
+    g_simple_async_result_take_error (result, error);
 }
 
 typedef struct {
@@ -645,12 +635,12 @@ g_buffered_output_stream_write_async (GOutputStream        *stream,
     {
       wdata->fdata.flush_stream = FALSE;
       wdata->fdata.close_stream = FALSE;
-      g_simple_async_result_run_in_thread (res, 
-                                           flush_buffer_thread, 
+      g_simple_async_result_run_in_thread (res,
+                                           flush_buffer_thread,
                                            io_priority,
                                            cancellable);
-      g_object_unref (res);
     }
+    g_object_unref (res);
 }
 
 static gssize
@@ -768,6 +758,3 @@ g_buffered_output_stream_close_finish (GOutputStream        *stream,
 
   return TRUE;
 }
-
-#define __G_BUFFERED_OUTPUT_STREAM_C__
-#include "gioaliasdef.c"

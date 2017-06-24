@@ -31,14 +31,13 @@
 #include "gsimpleasyncresult.h"
 #include "gioerror.h"
 
-#include "gioalias.h"
 
 /**
  * SECTION:ginputstream
  * @short_description: Base class for implementing streaming input
  * @include: gio/gio.h
  *
- * GInputStream has functions to read from a stream (g_input_stream_read()),
+ * #GInputStream has functions to read from a stream (g_input_stream_read()),
  * to close a stream (g_input_stream_close()) and to skip some content
  * (g_input_stream_skip()). 
  *
@@ -48,7 +47,7 @@
  * All of these functions have async variants too.
  **/
 
-G_DEFINE_TYPE (GInputStream, g_input_stream, G_TYPE_OBJECT);
+G_DEFINE_ABSTRACT_TYPE (GInputStream, g_input_stream, G_TYPE_OBJECT);
 
 struct _GInputStreamPrivate {
   guint closed : 1;
@@ -91,13 +90,6 @@ static gboolean g_input_stream_real_close_finish (GInputStream         *stream,
 static void
 g_input_stream_finalize (GObject *object)
 {
-  GInputStream *stream;
-
-  stream = G_INPUT_STREAM (object);
-  
-  if (!stream->priv->closed)
-    g_input_stream_close (stream, NULL, NULL);
-
   G_OBJECT_CLASS (g_input_stream_parent_class)->finalize (object);
 }
 
@@ -147,8 +139,8 @@ g_input_stream_init (GInputStream *stream)
  * @stream: a #GInputStream.
  * @buffer: a buffer to read data into (which should be at least count bytes long).
  * @count: the number of bytes that will be read from the stream
- * @cancellable: optional #GCancellable object, %NULL to ignore.
- * @error: location to store the error occuring, or %NULL to ignore
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore.
+ * @error: location to store the error occurring, or %NULL to ignore
  *
  * Tries to read @count bytes from the stream into the buffer starting at
  * @buffer. Will block during this read.
@@ -161,15 +153,15 @@ g_input_stream_init (GInputStream *stream)
  * can happen e.g. near the end of a file. Zero is returned on end of file
  * (or if @count is zero),  but never otherwise.
  *
- * If @cancellable is not NULL, then the operation can be cancelled by
+ * If @cancellable is not %NULL, then the operation can be cancelled by
  * triggering the cancellable object from another thread. If the operation
- * was cancelled, the error G_IO_ERROR_CANCELLED will be returned. If an
+ * was cancelled, the error %G_IO_ERROR_CANCELLED will be returned. If an
  * operation was partially finished when the operation was cancelled the
  * partial result will be returned, without an error.
  *
  * On error -1 is returned and @error is set accordingly.
  * 
- * Return value: Number of bytes read, or -1 on error
+ * Return value: Number of bytes read, or -1 on error, or 0 on end of file.
  **/
 gssize
 g_input_stream_read  (GInputStream  *stream,
@@ -224,9 +216,9 @@ g_input_stream_read  (GInputStream  *stream,
  * @stream: a #GInputStream.
  * @buffer: a buffer to read data into (which should be at least count bytes long).
  * @count: the number of bytes that will be read from the stream
- * @bytes_read: location to store the number of bytes that was read from the stream
- * @cancellable: optional #GCancellable object, %NULL to ignore.
- * @error: location to store the error occuring, or %NULL to ignore
+ * @bytes_read: (out): location to store the number of bytes that was read from the stream
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore.
+ * @error: location to store the error occurring, or %NULL to ignore
  *
  * Tries to read @count bytes from the stream into the buffer starting at
  * @buffer. Will block during this read.
@@ -285,8 +277,8 @@ g_input_stream_read_all (GInputStream  *stream,
  * g_input_stream_skip:
  * @stream: a #GInputStream.
  * @count: the number of bytes that will be skipped from the stream
- * @cancellable: optional #GCancellable object, %NULL to ignore. 
- * @error: location to store the error occuring, or %NULL to ignore
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore. 
+ * @error: location to store the error occurring, or %NULL to ignore
  *
  * Tries to skip @count bytes from the stream. Will block during the operation.
  *
@@ -355,8 +347,6 @@ g_input_stream_real_skip (GInputStream  *stream,
   char buffer[8192];
   GError *my_error;
 
-  class = G_INPUT_STREAM_GET_CLASS (stream);
-
   if (G_IS_SEEKABLE (stream) && g_seekable_can_seek (G_SEEKABLE (stream)))
     {
       if (g_seekable_seek (G_SEEKABLE (stream),
@@ -370,14 +360,14 @@ g_input_stream_real_skip (GInputStream  *stream,
   /* If not seekable, or seek failed, fall back to reading data: */
 
   class = G_INPUT_STREAM_GET_CLASS (stream);
-  
+
   read_bytes = 0;
   while (1)
     {
       my_error = NULL;
 
       ret = class->read_fn (stream, buffer, MIN (sizeof (buffer), count),
-			 cancellable, &my_error);
+                            cancellable, &my_error);
       if (ret == -1)
 	{
 	  if (read_bytes > 0 &&
@@ -387,24 +377,24 @@ g_input_stream_real_skip (GInputStream  *stream,
 	      g_error_free (my_error);
 	      return read_bytes;
 	    }
-	  
+
 	  g_propagate_error (error, my_error);
 	  return -1;
 	}
 
       count -= ret;
       read_bytes += ret;
-      
+
       if (ret == 0 || count == 0)
-	return read_bytes;
+        return read_bytes;
     }
 }
 
 /**
  * g_input_stream_close:
  * @stream: A #GInputStream.
- * @cancellable: optional #GCancellable object, %NULL to ignore.
- * @error: location to store the error occuring, or %NULL to ignore
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore.
+ * @error: location to store the error occurring, or %NULL to ignore
  *
  * Closes the stream, releasing resources related to it.
  *
@@ -424,7 +414,7 @@ g_input_stream_real_skip (GInputStream  *stream,
  * close will still return %G_IO_ERROR_CLOSED for all operations. Still, it
  * is important to check and report the error to the user.
  *
- * If @cancellable is not NULL, then the operation can be cancelled by
+ * If @cancellable is not %NULL, then the operation can be cancelled by
  * triggering the cancellable object from another thread. If the operation
  * was cancelled, the error %G_IO_ERROR_CANCELLED will be returned.
  * Cancelling a close will still leave the stream closed, but some streams
@@ -502,16 +492,16 @@ async_ready_close_callback_wrapper (GObject      *source_object,
  * @count: the number of bytes that will be read from the stream
  * @io_priority: the <link linkend="io-priority">I/O priority</link> 
  * of the request. 
- * @cancellable: optional #GCancellable object, %NULL to ignore.
- * @callback: callback to call when the request is satisfied
- * @user_data: the data to pass to callback function
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore.
+ * @callback: (scope async): callback to call when the request is satisfied
+ * @user_data: (closure): the data to pass to callback function
  *
  * Request an asynchronous read of @count bytes from the stream into the buffer
  * starting at @buffer. When the operation is finished @callback will be called. 
  * You can then call g_input_stream_read_finish() to get the result of the 
  * operation.
  *
- * During an async request no other sync and async calls are allowed, and will
+ * During an async request no other sync and async calls are allowed on @stream, and will
  * result in %G_IO_ERROR_PENDING errors. 
  *
  * A value of @count larger than %G_MAXSSIZE will cause a %G_IO_ERROR_INVALID_ARGUMENT error.
@@ -570,11 +560,10 @@ g_input_stream_read_async (GInputStream        *stream,
 
   if (!g_input_stream_set_pending (stream, &error))
     {
-      g_simple_async_report_gerror_in_idle (G_OBJECT (stream),
+      g_simple_async_report_take_gerror_in_idle (G_OBJECT (stream),
 					    callback,
 					    user_data,
 					    error);
-      g_error_free (error);
       return;
     }
 
@@ -589,12 +578,12 @@ g_input_stream_read_async (GInputStream        *stream,
  * g_input_stream_read_finish:
  * @stream: a #GInputStream.
  * @result: a #GAsyncResult.
- * @error: a #GError location to store the error occuring, or %NULL to 
+ * @error: a #GError location to store the error occurring, or %NULL to 
  * ignore.
  * 
  * Finishes an asynchronous stream read operation. 
  * 
- * Returns: number of bytes read in, or -1 on error.
+ * Returns: number of bytes read in, or -1 on error, or 0 on end of file.
  **/
 gssize
 g_input_stream_read_finish (GInputStream  *stream,
@@ -626,35 +615,35 @@ g_input_stream_read_finish (GInputStream  *stream,
  * g_input_stream_skip_async:
  * @stream: A #GInputStream.
  * @count: the number of bytes that will be skipped from the stream
- * @io_priority: the <link linkend="io-priority">I/O priority</link> 
- * of the request. 
- * @cancellable: optional #GCancellable object, %NULL to ignore. 
- * @callback: callback to call when the request is satisfied
- * @user_data: the data to pass to callback function
+ * @io_priority: the <link linkend="io-priority">I/O priority</link>
+ * of the request.
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore.
+ * @callback: (scope async): callback to call when the request is satisfied
+ * @user_data: (closure): the data to pass to callback function
  *
- * Request an asynchronous skip of @count bytes from the stream into the buffer
- * starting at @buffer. When the operation is finished @callback will be called. 
- * You can then call g_input_stream_skip_finish() to get the result of the 
- * operation.
+ * Request an asynchronous skip of @count bytes from the stream.
+ * When the operation is finished @callback will be called.
+ * You can then call g_input_stream_skip_finish() to get the result
+ * of the operation.
  *
- * During an async request no other sync and async calls are allowed, and will
- * result in %G_IO_ERROR_PENDING errors. 
+ * During an async request no other sync and async calls are allowed,
+ * and will result in %G_IO_ERROR_PENDING errors.
  *
  * A value of @count larger than %G_MAXSSIZE will cause a %G_IO_ERROR_INVALID_ARGUMENT error.
  *
- * On success, the number of bytes skipped will be passed to the
- * callback. It is not an error if this is not the same as the requested size, as it
+ * On success, the number of bytes skipped will be passed to the callback.
+ * It is not an error if this is not the same as the requested size, as it
  * can happen e.g. near the end of a file, but generally we try to skip
  * as many bytes as requested. Zero is returned on end of file
  * (or if @count is zero), but never otherwise.
  *
- * Any outstanding i/o request with higher priority (lower numerical value) will
- * be executed before an outstanding request with lower priority. Default
- * priority is %G_PRIORITY_DEFAULT.
+ * Any outstanding i/o request with higher priority (lower numerical value)
+ * will be executed before an outstanding request with lower priority.
+ * Default priority is %G_PRIORITY_DEFAULT.
  *
- * The asyncronous methods have a default fallback that uses threads to implement
- * asynchronicity, so they are optional for inheriting classes. However, if you
- * override one you must override all.
+ * The asynchronous methods have a default fallback that uses threads to
+ * implement asynchronicity, so they are optional for inheriting classes.
+ * However, if you override one, you must override all.
  **/
 void
 g_input_stream_skip_async (GInputStream        *stream,
@@ -695,11 +684,10 @@ g_input_stream_skip_async (GInputStream        *stream,
 
   if (!g_input_stream_set_pending (stream, &error))
     {
-      g_simple_async_report_gerror_in_idle (G_OBJECT (stream),
+      g_simple_async_report_take_gerror_in_idle (G_OBJECT (stream),
 					    callback,
 					    user_data,
 					    error);
-      g_error_free (error);
       return;
     }
 
@@ -714,7 +702,7 @@ g_input_stream_skip_async (GInputStream        *stream,
  * g_input_stream_skip_finish:
  * @stream: a #GInputStream.
  * @result: a #GAsyncResult.
- * @error: a #GError location to store the error occuring, or %NULL to 
+ * @error: a #GError location to store the error occurring, or %NULL to 
  * ignore.
  * 
  * Finishes a stream skip operation.
@@ -752,9 +740,9 @@ g_input_stream_skip_finish (GInputStream  *stream,
  * @stream: A #GInputStream.
  * @io_priority: the <link linkend="io-priority">I/O priority</link> 
  * of the request. 
- * @cancellable: optional cancellable object
- * @callback: callback to call when the request is satisfied
- * @user_data: the data to pass to callback function
+ * @cancellable: (allow-none): optional cancellable object
+ * @callback: (scope async): callback to call when the request is satisfied
+ * @user_data: (closure): the data to pass to callback function
  *
  * Requests an asynchronous closes of the stream, releasing resources related to it.
  * When the operation is finished @callback will be called. 
@@ -794,11 +782,10 @@ g_input_stream_close_async (GInputStream        *stream,
 
   if (!g_input_stream_set_pending (stream, &error))
     {
-      g_simple_async_report_gerror_in_idle (G_OBJECT (stream),
+      g_simple_async_report_take_gerror_in_idle (G_OBJECT (stream),
 					    callback,
 					    user_data,
 					    error);
-      g_error_free (error);
       return;
     }
   
@@ -813,7 +800,7 @@ g_input_stream_close_async (GInputStream        *stream,
  * g_input_stream_close_finish:
  * @stream: a #GInputStream.
  * @result: a #GAsyncResult.
- * @error: a #GError location to store the error occuring, or %NULL to 
+ * @error: a #GError location to store the error occurring, or %NULL to 
  * ignore.
  * 
  * Finishes closing a stream asynchronously, started from g_input_stream_close_async().
@@ -881,7 +868,7 @@ g_input_stream_has_pending (GInputStream *stream)
 /**
  * g_input_stream_set_pending:
  * @stream: input stream
- * @error: a #GError location to store the error occuring, or %NULL to 
+ * @error: a #GError location to store the error occurring, or %NULL to 
  * ignore.
  * 
  * Sets @stream to have actions pending. If the pending flag is
@@ -957,10 +944,7 @@ read_async_thread (GSimpleAsyncResult *res,
 				   op->buffer, op->count_requested,
 				   cancellable, &error);
   if (op->count_read == -1)
-    {
-      g_simple_async_result_set_from_error (res, error);
-      g_error_free (error);
-    }
+    g_simple_async_result_take_error (res, error);
 }
 
 static void
@@ -1022,10 +1006,7 @@ skip_async_thread (GSimpleAsyncResult *res,
 				   op->count_requested,
 				   cancellable, &error);
   if (op->count_skipped == -1)
-    {
-      g_simple_async_result_set_from_error (res, error);
-      g_error_free (error);
-    }
+    g_simple_async_result_take_error (res, error);
 }
 
 typedef struct {
@@ -1076,13 +1057,12 @@ skip_callback_wrapper (GObject      *source_object,
 
   if (ret == -1)
     {
-      if (data->count_skipped && 
-	  error->domain == G_IO_ERROR &&
-	  error->code == G_IO_ERROR_CANCELLED)
-	{ /* No error, return partial read */ }
+      if (data->count_skipped &&
+          g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+	/* No error, return partial read */
+	g_error_free (error);
       else
-	g_simple_async_result_set_from_error (simple, error);
-      g_error_free (error);
+	g_simple_async_result_take_error (simple, error);
     }
 
   /* Complete immediately, not in idle, since we're already in a mainloop callout */
@@ -1168,13 +1148,13 @@ close_async_thread (GSimpleAsyncResult *res,
      cancellation, since we want to close things anyway, although
      possibly in a quick-n-dirty way. At least we never want to leak
      open handles */
-  
+
   class = G_INPUT_STREAM_GET_CLASS (object);
-  result = class->close_fn (G_INPUT_STREAM (object), cancellable, &error);
-  if (!result)
+  if (class->close_fn)
     {
-      g_simple_async_result_set_from_error (res, error);
-      g_error_free (error);
+      result = class->close_fn (G_INPUT_STREAM (object), cancellable, &error);
+      if (!result)
+        g_simple_async_result_take_error (res, error);
     }
 }
 
@@ -1210,6 +1190,3 @@ g_input_stream_real_close_finish (GInputStream  *stream,
   g_warn_if_fail (g_simple_async_result_get_source_tag (simple) == g_input_stream_real_close_async);
   return TRUE;
 }
-
-#define __G_INPUT_STREAM_C__
-#include "gioaliasdef.c"

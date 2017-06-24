@@ -30,7 +30,7 @@ G_BEGIN_DECLS   /* c++ guards */
  * implementation needs to be self-contained within this file.
  */
 
-/* convenience macro to avoid signed overflow for value comparisions */
+/* convenience macro to avoid signed overflow for value comparisons */
 #define G_BSEARCH_ARRAY_CMP(v1,v2) ((v1) > (v2) ? +1 : (v1) == (v2) ? 0 : -1)
 
 
@@ -133,7 +133,7 @@ g_bsearch_array_create (const GBSearchConfig *bconfig)
   size = sizeof (GBSearchArray) + bconfig->sizeof_node;
   if (bconfig->flags & G_BSEARCH_ARRAY_ALIGN_POWER2)
     size = G_BSEARCH_UPPER_POWER2 (size);
-  barray = (GBSearchArray *) g_realloc (NULL, size);
+  barray = (GBSearchArray *) g_malloc (size);
   memset (barray, 0, sizeof (GBSearchArray));
 
   return barray;

@@ -33,7 +33,6 @@
 
 #include "glibintl.h"
 
-#include "gioalias.h"
 
 /* There versioning of this is implicit, version 1 would be ".1 " */
 #define G_ICON_SERIALIZATION_MAGIC0 ". "
@@ -63,49 +62,11 @@
  * with the type system prior to calling g_icon_new_for_string().
  **/
 
-static void g_icon_base_init (gpointer g_class);
-static void g_icon_class_init (gpointer g_class,
-			       gpointer class_data);
-
-GType
-g_icon_get_type (void)
-{
-  static volatile gsize g_define_type_id__volatile = 0;
-
-  if (g_once_init_enter (&g_define_type_id__volatile))
-    {
-      const GTypeInfo icon_info =
-      {
-        sizeof (GIconIface), /* class_size */
-	g_icon_base_init,   /* base_init */
-	NULL,		/* base_finalize */
-	g_icon_class_init,
-	NULL,		/* class_finalize */
-	NULL,		/* class_data */
-	0,
-	0,              /* n_preallocs */
-	NULL
-      };
-      GType g_define_type_id =
-	g_type_register_static (G_TYPE_INTERFACE, I_("GIcon"),
-				&icon_info, 0);
-
-      g_type_interface_add_prerequisite (g_define_type_id, G_TYPE_OBJECT);
-
-      g_once_init_leave (&g_define_type_id__volatile, g_define_type_id);
-    }
-
-  return g_define_type_id__volatile;
-}
+typedef GIconIface GIconInterface;
+G_DEFINE_INTERFACE(GIcon, g_icon, G_TYPE_OBJECT)
 
 static void
-g_icon_class_init (gpointer g_class,
-		   gpointer class_data)
-{
-}
-
-static void
-g_icon_base_init (gpointer g_class)
+g_icon_default_init (GIconInterface *iface)
 {
 }
 
@@ -114,7 +75,8 @@ g_icon_base_init (gpointer g_class)
  * @icon: #gconstpointer to an icon object.
  * 
  * Gets a hash for an icon.
- * 
+ *
+ * Virtual: hash
  * Returns: a #guint containing a hash for the @icon, suitable for 
  * use in a #GHashTable or similar data structure.
  **/
@@ -132,8 +94,8 @@ g_icon_hash (gconstpointer icon)
 
 /**
  * g_icon_equal:
- * @icon1: pointer to the first #GIcon.
- * @icon2: pointer to the second #GIcon.
+ * @icon1: (allow-none): pointer to the first #GIcon.
+ * @icon2: (allow-none): pointer to the second #GIcon.
  * 
  * Checks if two icons are equal.
  * 
@@ -162,7 +124,6 @@ g_icon_equal (GIcon *icon1,
 static gboolean
 g_icon_to_string_tokenized (GIcon *icon, GString *s)
 {
-  char *ret;
   GPtrArray *tokens;
   gint version;
   GIconIface *icon_iface;
@@ -170,8 +131,6 @@ g_icon_to_string_tokenized (GIcon *icon, GString *s)
 
   g_return_val_if_fail (icon != NULL, FALSE);
   g_return_val_if_fail (G_IS_ICON (icon), FALSE);
-
-  ret = NULL;
 
   icon_iface = G_ICON_GET_IFACE (icon);
   if (icon_iface->to_tokens == NULL)
@@ -229,7 +188,7 @@ g_icon_to_string_tokenized (GIcon *icon, GString *s)
  *     (such as <literal>/path/to/my icon.png</literal>) without escaping
  *     if the #GFile for @icon is a native file.  If the file is not
  *     native, the returned string is the result of g_file_get_uri()
- *     (such as <literal>sftp://path/to/my%%20icon.png</literal>).
+ *     (such as <literal>sftp://path/to/my&percnt;20icon.png</literal>).
  * </para></listitem>
  * <listitem><para>
  *    If @icon is a #GThemedIcon with exactly one name, the encoding is
@@ -237,6 +196,7 @@ g_icon_to_string_tokenized (GIcon *icon, GString *s)
  * </para></listitem>
  * </itemizedlist>
  *
+ * Virtual: to_tokens
  * Returns: An allocated NUL-terminated UTF8 string or %NULL if @icon can't
  * be serialized. Use g_free() to free.
  *
@@ -420,6 +380,7 @@ ensure_builtin_icon_types (void)
   t = g_file_icon_get_type ();
   t = g_emblemed_icon_get_type ();
   t = g_emblem_get_type ();
+  (t); /* To avoid -Wunused-but-set-variable */
 }
 
 /**
@@ -434,8 +395,8 @@ ensure_builtin_icon_types (void)
  * implementations you need to ensure that each #GType is registered
  * with the type system prior to calling g_icon_new_for_string().
  *
- * Returns: An object implementing the #GIcon interface or %NULL if
- * @error is set.
+ * Returns: (transfer full): An object implementing the #GIcon
+ *          interface or %NULL if @error is set.
  *
  * Since: 2.20
  **/
@@ -488,7 +449,3 @@ g_icon_new_for_string (const gchar   *str,
 
   return icon;
 }
-
-
-#define __G_ICON_C__
-#include "gioaliasdef.c"

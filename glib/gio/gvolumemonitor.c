@@ -30,7 +30,6 @@
 #include "gdrive.h"
 #include "glibintl.h"
 
-#include "gioalias.h"
 
 /**
  * SECTION:gvolumemonitor
@@ -41,7 +40,12 @@
  * #GVolumeMonitor is for listing the user interesting devices and volumes
  * on the computer. In other words, what a file selector or file manager
  * would show in a sidebar. 
-**/
+ *
+ * #GVolumeMonitor is not <link
+ * linkend="g-main-context-push-thread-default">thread-default-context
+ * aware</link>, and so should not be used other than from the main
+ * thread, with no thread-default-context active.
+ **/
 
 G_DEFINE_TYPE (GVolumeMonitor, g_volume_monitor, G_TYPE_OBJECT);
 
@@ -57,6 +61,7 @@ enum {
   DRIVE_DISCONNECTED,
   DRIVE_CHANGED,
   DRIVE_EJECT_BUTTON,
+  DRIVE_STOP_BUTTON,
   LAST_SIGNAL
 };
 
@@ -66,10 +71,6 @@ static guint signals[LAST_SIGNAL] = { 0 };
 static void
 g_volume_monitor_finalize (GObject *object)
 {
-  GVolumeMonitor *monitor;
-
-  monitor = G_VOLUME_MONITOR (object);
-
   G_OBJECT_CLASS (g_volume_monitor_parent_class)->finalize (object);
 }
 
@@ -247,6 +248,23 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                               g_cclosure_marshal_VOID__OBJECT,
                                               G_TYPE_NONE, 1, G_TYPE_DRIVE);
 
+  /**
+   * GVolumeMonitor::drive-stop-button:
+   * @volume_monitor: The volume monitor emitting the signal.
+   * @drive: the drive where the stop button was pressed
+   *
+   * Emitted when the stop button is pressed on @drive.
+   *
+   * Since: 2.22
+   **/
+  signals[DRIVE_STOP_BUTTON] = g_signal_new (I_("drive-stop-button"),
+                                             G_TYPE_VOLUME_MONITOR,
+                                             G_SIGNAL_RUN_LAST,
+                                             G_STRUCT_OFFSET (GVolumeMonitorClass, drive_stop_button),
+                                             NULL, NULL,
+                                             g_cclosure_marshal_VOID__OBJECT,
+                                             G_TYPE_NONE, 1, G_TYPE_DRIVE);
+
 }
 
 static void
@@ -264,7 +282,7 @@ g_volume_monitor_init (GVolumeMonitor *monitor)
  * The returned list should be freed with g_list_free(), after
  * its elements have been unreffed with g_object_unref().
  *
- * Returns: a #GList of connected #GDrive objects.
+ * Returns: (element-type GDrive) (transfer full): a #GList of connected #GDrive objects.
  **/
 GList *
 g_volume_monitor_get_connected_drives (GVolumeMonitor *volume_monitor)
@@ -287,7 +305,7 @@ g_volume_monitor_get_connected_drives (GVolumeMonitor *volume_monitor)
  * The returned list should be freed with g_list_free(), after
  * its elements have been unreffed with g_object_unref().
  *
- * Returns: a #GList of #GVolume objects.
+ * Returns: (element-type GVolume) (transfer full): a #GList of #GVolume objects.
  **/
 GList *
 g_volume_monitor_get_volumes (GVolumeMonitor *volume_monitor)
@@ -310,7 +328,7 @@ g_volume_monitor_get_volumes (GVolumeMonitor *volume_monitor)
  * The returned list should be freed with g_list_free(), after
  * its elements have been unreffed with g_object_unref().
  * 
- * Returns: a #GList of #GMount objects.
+ * Returns: (element-type GMount) (transfer full): a #GList of #GMount objects.
  **/
 GList *
 g_volume_monitor_get_mounts (GVolumeMonitor *volume_monitor)
@@ -331,7 +349,7 @@ g_volume_monitor_get_mounts (GVolumeMonitor *volume_monitor)
  * 
  * Finds a #GVolume object by its UUID (see g_volume_get_uuid())
  * 
- * Returns: a #GVolume or %NULL if no such volume is available.
+ * Returns: (transfer full): a #GVolume or %NULL if no such volume is available.
  *     Free the returned object with g_object_unref().
  **/
 GVolume *
@@ -355,7 +373,7 @@ g_volume_monitor_get_volume_for_uuid (GVolumeMonitor *volume_monitor,
  * 
  * Finds a #GMount object by its UUID (see g_mount_get_uuid())
  * 
- * Returns: a #GMount or %NULL if no such mount is available.
+ * Returns: (transfer full): a #GMount or %NULL if no such mount is available.
  *     Free the returned object with g_object_unref().
  **/
 GMount *
@@ -371,7 +389,3 @@ g_volume_monitor_get_mount_for_uuid (GVolumeMonitor *volume_monitor,
 
   return class->get_mount_for_uuid (volume_monitor, uuid);
 }
-
-
-#define __G_VOLUME_MONITOR_C__
-#include "gioaliasdef.c"

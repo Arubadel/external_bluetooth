@@ -1,3 +1,7 @@
+<?xml version="1.0"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.3//EN"
+               "http://www.oasis-open.org/docbook/xml/4.3/docbookx.dtd" [
+]>
 <refentry id="glib-cross-compiling" revision="8 Apr 2003">
 <refmeta>
 <refentrytitle>Cross-compiling the GLib package</refentrytitle>
@@ -104,6 +108,15 @@ chmod a-w win32.cache   # prevent configure from changing it
             OpenBSD. Defaults to "no", which is safe, since GLib uses a 
             built-in version in that case.
 	</para>
+      </formalpara>
+      <formalpara>
+         <title>glib_cv_have_qsort_r=[yes/no]</title>
+
+         <para>
+           Whether you have <function>qsort_r()</function> that matches
+           BSD. Defaults to "no", which is safe, since GLib uses a
+           built-in version in that case.
+         </para>
       </formalpara>
       <formalpara>
          <title>glib_cv_va_val_copy=[yes/no]</title>

@@ -33,7 +33,6 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
-#define _GNU_SOURCE
 #include <fcntl.h>
 #include <errno.h>
 #ifdef HAVE_GRP_H
@@ -60,6 +59,8 @@
 
 #include <glib/gstdio.h>
 #include <gfileattribute-priv.h>
+#include <gfileinfo-priv.h>
+#include <gvfs.h>
 
 #include "glibintl.h"
 
@@ -92,7 +93,6 @@
 #include "gcontenttype.h"
 #include "gcontenttypeprivate.h"
 
-#include "gioalias.h"
 
 struct ThumbMD5Context {
 	guint32 buf[4];
@@ -118,18 +118,18 @@ static GHashTable *gid_cache = NULL;
 char *
 _g_local_file_info_create_etag (GLocalFileStat *statbuf)
 {
-  GTimeVal tv;
-  
-  tv.tv_sec = statbuf->st_mtime;
+  glong sec, usec;
+
+  sec = statbuf->st_mtime;
 #if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
-  tv.tv_usec = statbuf->st_mtimensec / 1000;
+  usec = statbuf->st_mtimensec / 1000;
 #elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
-  tv.tv_usec = statbuf->st_mtim.tv_nsec / 1000;
+  usec = statbuf->st_mtim.tv_nsec / 1000;
 #else
-  tv.tv_usec = 0;
+  usec = 0;
 #endif
 
-  return g_strdup_printf ("%lu:%lu", tv.tv_sec, tv.tv_usec);
+  return g_strdup_printf ("%lu:%lu", sec, usec);
 }
 
 static char *
@@ -195,7 +195,7 @@ get_selinux_context (const char            *path,
 {
   char *context;
 
-  if (!g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_SELINUX_CONTEXT))
+  if (!_g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_SELINUX_CONTEXT))
     return;
   
   if (is_selinux_enabled ())
@@ -213,7 +213,7 @@ get_selinux_context (const char            *path,
 
       if (context)
 	{
-	  g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_SELINUX_CONTEXT, context);
+	  _g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_SELINUX_CONTEXT, context);
 	  freecon (context);
 	}
     }
@@ -321,7 +321,7 @@ hex_escape_string (const char *str,
 	  *p++ = hex_digits[c & 0xf];
 	}
     }
-  *p++ = 0;
+  *p = 0;
 
   *free_return = TRUE;
   return escaped_str;
@@ -786,21 +786,20 @@ _g_local_file_info_get_parent_info (const char            *dir,
 				    GFileAttributeMatcher *attribute_matcher,
 				    GLocalParentFileInfo  *parent_info)
 {
-  /* Use plain struct stat for now as long as we only look at the
-   * S_ISVTX bit which doesn't exist on Win32 anyway.
-   */
-  struct stat statbuf;
+  GStatBuf statbuf;
   int res;
-  
+
+  parent_info->extra_data = NULL;
+  parent_info->free_extra_data = NULL;
   parent_info->writable = FALSE;
   parent_info->is_sticky = FALSE;
   parent_info->has_trash_dir = FALSE;
   parent_info->device = 0;
 
-  if (g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_ACCESS_CAN_RENAME) ||
-      g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_ACCESS_CAN_DELETE) ||
-      g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_ACCESS_CAN_TRASH) ||
-      g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_UNIX_IS_MOUNTPOINT))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_RENAME) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_DELETE) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_TRASH) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT))
     {
       /* FIXME: Windows: The underlying _waccess() call in the C
        * library is mostly pointless as it only looks at the READONLY
@@ -827,10 +826,18 @@ _g_local_file_info_get_parent_info (const char            *dir,
 	  parent_info->device = statbuf.st_dev;
           /* No need to find trash dir if it's not writable anyway */
           if (parent_info->writable &&
-              g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_ACCESS_CAN_TRASH))
+              _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_TRASH))
             parent_info->has_trash_dir = _g_local_file_has_trash_dir (dir, statbuf.st_dev);
 	}
     }
+}
+
+void
+_g_local_file_info_free_parent_info (GLocalParentFileInfo *parent_info)
+{
+  if (parent_info->extra_data &&
+      parent_info->free_extra_data)
+    parent_info->free_extra_data (parent_info->extra_data);
 }
 
 static void
@@ -841,20 +848,20 @@ get_access_rights (GFileAttributeMatcher *attribute_matcher,
 		   GLocalParentFileInfo  *parent_info)
 {
   /* FIXME: Windows: The underlyin _waccess() is mostly pointless */
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_ACCESS_CAN_READ))
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_READ,
-				       g_access (path, R_OK) == 0);
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_ACCESS_CAN_READ))
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_READ,
+				             g_access (path, R_OK) == 0);
   
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_ACCESS_CAN_WRITE))
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_WRITE,
-				       g_access (path, W_OK) == 0);
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_ACCESS_CAN_WRITE))
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_WRITE,
+				             g_access (path, W_OK) == 0);
   
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_ACCESS_CAN_EXECUTE))
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_EXECUTE,
-				       g_access (path, X_OK) == 0);
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_ACCESS_CAN_EXECUTE))
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_EXECUTE,
+				             g_access (path, X_OK) == 0);
 
 
   if (parent_info)
@@ -879,17 +886,17 @@ get_access_rights (GFileAttributeMatcher *attribute_matcher,
 	    writable = TRUE;
 	}
 
-      if (g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_ACCESS_CAN_RENAME))
-	g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_RENAME,
-					   writable);
+      if (_g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_RENAME))
+	_g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_RENAME,
+					         writable);
       
-      if (g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_ACCESS_CAN_DELETE))
-	g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_DELETE,
-					   writable);
+      if (_g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_DELETE))
+	_g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_DELETE,
+					         writable);
 
-      if (g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_ACCESS_CAN_TRASH))
-        g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_TRASH,
-                                           writable && parent_info->has_trash_dir);
+      if (_g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_TRASH))
+        _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_TRASH,
+                                                 writable && parent_info->has_trash_dir);
     }
 }
 
@@ -924,68 +931,68 @@ set_info_from_stat (GFileInfo             *info,
   g_file_info_set_file_type (info, file_type);
   g_file_info_set_size (info, statbuf->st_size);
 
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_DEVICE, statbuf->st_dev);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_DEVICE, statbuf->st_dev);
 #ifndef G_OS_WIN32
   /* Pointless setting these on Windows even if they exist in the struct */
-  g_file_info_set_attribute_uint64 (info, G_FILE_ATTRIBUTE_UNIX_INODE, statbuf->st_ino);
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_NLINK, statbuf->st_nlink);
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_UID, statbuf->st_uid);
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_GID, statbuf->st_gid);
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_RDEV, statbuf->st_rdev);
+  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_INODE, statbuf->st_ino);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_NLINK, statbuf->st_nlink);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_UID, statbuf->st_uid);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_GID, statbuf->st_gid);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_RDEV, statbuf->st_rdev);
 #endif
   /* FIXME: st_mode is mostly pointless on Windows, too. Set the attribute or not? */
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_MODE, statbuf->st_mode);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_MODE, statbuf->st_mode);
 #if defined (HAVE_STRUCT_STAT_ST_BLKSIZE)
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_BLOCK_SIZE, statbuf->st_blksize);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_BLOCK_SIZE, statbuf->st_blksize);
 #endif
 #if defined (HAVE_STRUCT_STAT_ST_BLOCKS)
-  g_file_info_set_attribute_uint64 (info, G_FILE_ATTRIBUTE_UNIX_BLOCKS, statbuf->st_blocks);
-  g_file_info_set_attribute_uint64 (info, G_FILE_ATTRIBUTE_STANDARD_ALLOCATED_SIZE,
-                                    statbuf->st_blocks * G_GUINT64_CONSTANT (512));
+  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_BLOCKS, statbuf->st_blocks);
+  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_STANDARD_ALLOCATED_SIZE,
+                                          statbuf->st_blocks * G_GUINT64_CONSTANT (512));
 #endif
   
-  g_file_info_set_attribute_uint64 (info, G_FILE_ATTRIBUTE_TIME_MODIFIED, statbuf->st_mtime);
+  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED, statbuf->st_mtime);
 #if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC, statbuf->st_mtimensec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_USEC, statbuf->st_mtimensec / 1000);
 #elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC, statbuf->st_mtim.tv_nsec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_USEC, statbuf->st_mtim.tv_nsec / 1000);
 #endif
   
-  g_file_info_set_attribute_uint64 (info, G_FILE_ATTRIBUTE_TIME_ACCESS, statbuf->st_atime);
+  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS, statbuf->st_atime);
 #if defined (HAVE_STRUCT_STAT_ST_ATIMENSEC)
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_ACCESS_USEC, statbuf->st_atimensec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_USEC, statbuf->st_atimensec / 1000);
 #elif defined (HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC)
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_ACCESS_USEC, statbuf->st_atim.tv_nsec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_USEC, statbuf->st_atim.tv_nsec / 1000);
 #endif
   
-  g_file_info_set_attribute_uint64 (info, G_FILE_ATTRIBUTE_TIME_CHANGED, statbuf->st_ctime);
+  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED, statbuf->st_ctime);
 #if defined (HAVE_STRUCT_STAT_ST_CTIMENSEC)
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_CHANGED_USEC, statbuf->st_ctimensec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_USEC, statbuf->st_ctimensec / 1000);
 #elif defined (HAVE_STRUCT_STAT_ST_CTIM_TV_NSEC)
-  g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_CHANGED_USEC, statbuf->st_ctim.tv_nsec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_USEC, statbuf->st_ctim.tv_nsec / 1000);
 #endif
 
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_ETAG_VALUE))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_ETAG_VALUE))
     {
       char *etag = _g_local_file_info_create_etag (statbuf);
-      g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_ETAG_VALUE, etag);
+      _g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_ETAG_VALUE, etag);
       g_free (etag);
     }
 
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_ID_FILE))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_ID_FILE))
     {
       char *id = _g_local_file_info_create_file_id (statbuf);
-      g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_ID_FILE, id);
+      _g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_ID_FILE, id);
       g_free (id);
     }
 
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_ID_FILESYSTEM))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_ID_FILESYSTEM))
     {
       char *id = _g_local_file_info_create_fs_id (statbuf);
-      g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_ID_FILESYSTEM, id);
+      _g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_ID_FILESYSTEM, id);
       g_free (id);
     }
 }
@@ -1207,19 +1214,19 @@ get_content_type (const char          *basename,
 {
   if (is_symlink &&
       (symlink_broken || (flags & G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS)))
-    return g_strdup  ("inode/symlink");
-  else if (S_ISDIR(statbuf->st_mode))
+    return g_strdup ("inode/symlink");
+  else if (statbuf != NULL && S_ISDIR(statbuf->st_mode))
     return g_strdup ("inode/directory");
 #ifndef G_OS_WIN32
-  else if (S_ISCHR(statbuf->st_mode))
+  else if (statbuf != NULL && S_ISCHR(statbuf->st_mode))
     return g_strdup ("inode/chardevice");
-  else if (S_ISBLK(statbuf->st_mode))
+  else if (statbuf != NULL && S_ISBLK(statbuf->st_mode))
     return g_strdup ("inode/blockdevice");
-  else if (S_ISFIFO(statbuf->st_mode))
+  else if (statbuf != NULL && S_ISFIFO(statbuf->st_mode))
     return g_strdup ("inode/fifo");
 #endif
 #ifdef S_ISSOCK
-  else if (S_ISSOCK(statbuf->st_mode))
+  else if (statbuf != NULL && S_ISSOCK(statbuf->st_mode))
     return g_strdup ("inode/socket");
 #endif
   else
@@ -1290,7 +1297,7 @@ get_thumbnail_attributes (const char *path,
                                NULL);
 
   if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
-    g_file_info_set_attribute_byte_string (info, G_FILE_ATTRIBUTE_THUMBNAIL_PATH, filename);
+    _g_file_info_set_attribute_byte_string_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH, filename);
   else
     {
       g_free (filename);
@@ -1301,7 +1308,7 @@ get_thumbnail_attributes (const char *path,
                                    NULL);
 
       if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
-	g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_THUMBNAILING_FAILED, TRUE);
+	_g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED, TRUE);
     }
   g_free (basename);
   g_free (filename);
@@ -1399,6 +1406,49 @@ win32_get_file_user_info (const gchar  *filename,
 }
 #endif /* G_OS_WIN32 */
 
+void
+_g_local_file_info_get_nostat (GFileInfo              *info,
+                               const char             *basename,
+			       const char             *path,
+                               GFileAttributeMatcher  *attribute_matcher)
+{
+  g_file_info_set_name (info, basename);
+
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_STANDARD_DISPLAY_NAME))
+    {
+      char *display_name = g_filename_display_basename (path);
+     
+      /* look for U+FFFD REPLACEMENT CHARACTER */ 
+      if (strstr (display_name, "\357\277\275") != NULL)
+	{
+	  char *p = display_name;
+	  display_name = g_strconcat (display_name, _(" (invalid encoding)"), NULL);
+	  g_free (p);
+	}
+      g_file_info_set_display_name (info, display_name);
+      g_free (display_name);
+    }
+  
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_STANDARD_EDIT_NAME))
+    {
+      char *edit_name = g_filename_display_basename (path);
+      g_file_info_set_edit_name (info, edit_name);
+      g_free (edit_name);
+    }
+
+  
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_STANDARD_COPY_NAME))
+    {
+      char *copy_name = g_filename_to_utf8 (basename, -1, NULL, NULL, NULL);
+      if (copy_name)
+	_g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_STANDARD_COPY_NAME, copy_name);
+      g_free (copy_name);
+    }
+}
+
 GFileInfo *
 _g_local_file_info_get (const char             *basename,
 			const char             *path,
@@ -1413,21 +1463,28 @@ _g_local_file_info_get (const char             *basename,
   struct stat statbuf2;
 #endif
   int res;
+  gboolean stat_ok;
   gboolean is_symlink, symlink_broken;
 #ifdef G_OS_WIN32
   DWORD dos_attributes;
 #endif
+  char *symlink_target;
+  GVfs *vfs;
+  GVfsClass *class;
+  guint64 device;
 
   info = g_file_info_new ();
 
   /* Make sure we don't set any unwanted attributes */
   g_file_info_set_attribute_mask (info, attribute_matcher);
   
-  g_file_info_set_name (info, basename);
+  _g_local_file_info_get_nostat (info, basename, path, attribute_matcher);
 
-  /* Avoid stat in trivial case */
   if (attribute_matcher == NULL)
-    return info;
+    {
+      g_file_info_unset_attribute_mask (info);
+      return info;
+    }
 
 #ifndef G_OS_WIN32
   res = g_lstat (path, &statbuf);
@@ -1459,18 +1516,31 @@ _g_local_file_info_get (const char             *basename,
   if (res == -1)
     {
       int errsv = errno;
-      char *display_name = g_filename_display_name (path);
-      g_object_unref (info);
-      g_set_error (error, G_IO_ERROR,
-		   g_io_error_from_errno (errsv),
-		   _("Error stating file '%s': %s"),
-		   display_name, g_strerror (errsv));
-      g_free (display_name);
-      return NULL;
+
+      /* Don't bail out if we get Permission denied (SELinux?) */
+      if (errsv != EACCES)
+        {
+          char *display_name = g_filename_display_name (path);
+          g_object_unref (info);
+          g_set_error (error, G_IO_ERROR,
+		       g_io_error_from_errno (errsv),
+		       _("Error when getting information for file '%s': %s"),
+		       display_name, g_strerror (errsv));
+          g_free (display_name);
+          return NULL;
+        }
     }
-  
+
+  /* Even if stat() fails, try to get as much as other attributes possible */
+  stat_ok = res != -1;
+
+  if (stat_ok)
+    device = statbuf.st_dev;
+  else
+    device = 0;
+
 #ifdef S_ISLNK
-  is_symlink = S_ISLNK (statbuf.st_mode);
+  is_symlink = stat_ok && S_ISLNK (statbuf.st_mode);
 #else
   is_symlink = FALSE;
 #endif
@@ -1485,101 +1555,85 @@ _g_local_file_info_get (const char             *basename,
 	{
 	  res = stat (path, &statbuf2);
 
-	    /* Report broken links as symlinks */
+	  /* Report broken links as symlinks */
 	  if (res != -1)
-	    statbuf = statbuf2;
+	    {
+	      statbuf = statbuf2;
+	      stat_ok = TRUE;
+	    }
 	  else
 	    symlink_broken = TRUE;
 	}
     }
 #endif
 
-  set_info_from_stat (info, &statbuf, attribute_matcher);
-  
+  if (stat_ok)
+    set_info_from_stat (info, &statbuf, attribute_matcher);
+
 #ifndef G_OS_WIN32
   if (basename != NULL && basename[0] == '.')
     g_file_info_set_is_hidden (info, TRUE);
 
   if (basename != NULL && basename[strlen (basename) -1] == '~' &&
-      S_ISREG (statbuf.st_mode))
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_STANDARD_IS_BACKUP, TRUE);
+      (stat_ok && S_ISREG (statbuf.st_mode)))
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_STANDARD_IS_BACKUP, TRUE);
 #else
   if (dos_attributes & FILE_ATTRIBUTE_HIDDEN)
     g_file_info_set_is_hidden (info, TRUE);
 
   if (dos_attributes & FILE_ATTRIBUTE_ARCHIVE)
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_DOS_IS_ARCHIVE, TRUE);
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_ARCHIVE, TRUE);
 
   if (dos_attributes & FILE_ATTRIBUTE_SYSTEM)
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_DOS_IS_SYSTEM, TRUE);
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_SYSTEM, TRUE);
 #endif
 
+  symlink_target = NULL;
 #ifdef S_ISLNK
-  if (is_symlink &&
-      g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_STANDARD_SYMLINK_TARGET))
+  if (is_symlink)
     {
-      char *link = read_link (path);
-      g_file_info_set_symlink_target (info, link);
-      g_free (link);
+      symlink_target = read_link (path);
+      if (symlink_target &&
+          _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                                G_FILE_ATTRIBUTE_ID_STANDARD_SYMLINK_TARGET))
+        g_file_info_set_symlink_target (info, symlink_target);
     }
 #endif
-
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_STANDARD_CONTENT_TYPE) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_STANDARD_ICON))
     {
-      char *display_name = g_filename_display_basename (path);
-     
-      /* look for U+FFFD REPLACEMENT CHARACTER */ 
-      if (strstr (display_name, "\357\277\275") != NULL)
-	{
-	  char *p = display_name;
-	  display_name = g_strconcat (display_name, _(" (invalid encoding)"), NULL);
-	  g_free (p);
-	}
-      g_file_info_set_display_name (info, display_name);
-      g_free (display_name);
-    }
-  
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_STANDARD_EDIT_NAME))
-    {
-      char *edit_name = g_filename_display_basename (path);
-      g_file_info_set_edit_name (info, edit_name);
-      g_free (edit_name);
-    }
-
-  
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_STANDARD_COPY_NAME))
-    {
-      char *copy_name = g_filename_to_utf8 (basename, -1, NULL, NULL, NULL);
-      if (copy_name)
-	g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_COPY_NAME, copy_name);
-      g_free (copy_name);
-    }
-
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE) ||
-      g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_STANDARD_ICON))
-    {
-      char *content_type = get_content_type (basename, path, &statbuf, is_symlink, symlink_broken, flags, FALSE);
+      char *content_type = get_content_type (basename, path, stat_ok ? &statbuf : NULL, is_symlink, symlink_broken, flags, FALSE);
 
       if (content_type)
 	{
 	  g_file_info_set_content_type (info, content_type);
 
-	  if (g_file_attribute_matcher_matches (attribute_matcher,
-						G_FILE_ATTRIBUTE_STANDARD_ICON))
+	  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+						    G_FILE_ATTRIBUTE_ID_STANDARD_ICON))
 	    {
 	      GIcon *icon;
 
               if (strcmp (path, g_get_home_dir ()) == 0)
                 icon = g_themed_icon_new ("user-home");
-              else if (strcmp (path, g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP)) == 0) 
+              else if (strcmp (path, g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP)) == 0)
                 icon = g_themed_icon_new ("user-desktop");
-              else 
+              else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_DOCUMENTS)) == 0)
+                icon = g_themed_icon_new_with_default_fallbacks ("folder-documents");
+              else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_DOWNLOAD)) == 0)
+                icon = g_themed_icon_new_with_default_fallbacks ("folder-download");
+              else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_MUSIC)) == 0)
+                icon = g_themed_icon_new_with_default_fallbacks ("folder-music");
+              else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_PICTURES)) == 0)
+                icon = g_themed_icon_new_with_default_fallbacks ("folder-pictures");
+              else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_PUBLIC_SHARE)) == 0)
+                icon = g_themed_icon_new_with_default_fallbacks ("folder-publicshare");
+              else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_TEMPLATES)) == 0)
+                icon = g_themed_icon_new_with_default_fallbacks ("folder-templates");
+              else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS)) == 0)
+                icon = g_themed_icon_new_with_default_fallbacks ("folder-videos");
+              else
                 {
                   icon = g_content_type_get_icon (content_type);
                   if (G_IS_THEMED_ICON (icon))
@@ -1604,67 +1658,71 @@ _g_local_file_info_get (const char             *basename,
 	}
     }
 
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_STANDARD_FAST_CONTENT_TYPE))
     {
-      char *content_type = get_content_type (basename, path, &statbuf, is_symlink, symlink_broken, flags, TRUE);
+      char *content_type = get_content_type (basename, path, stat_ok ? &statbuf : NULL, is_symlink, symlink_broken, flags, TRUE);
       
       if (content_type)
 	{
-	  g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE, content_type);
+	  _g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_STANDARD_FAST_CONTENT_TYPE, content_type);
 	  g_free (content_type);
 	}
     }
 
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_OWNER_USER))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_OWNER_USER))
     {
       char *name = NULL;
       
 #ifdef G_OS_WIN32
       win32_get_file_user_info (path, NULL, &name, NULL);
 #else
-      name = get_username_from_uid (statbuf.st_uid);
+      if (stat_ok)
+        name = get_username_from_uid (statbuf.st_uid);
 #endif
       if (name)
-	g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_OWNER_USER, name);
+	_g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_OWNER_USER, name);
       g_free (name);
     }
 
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_OWNER_USER_REAL))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_OWNER_USER_REAL))
     {
       char *name = NULL;
 #ifdef G_OS_WIN32
       win32_get_file_user_info (path, NULL, NULL, &name);
 #else
-      name = get_realname_from_uid (statbuf.st_uid);
+      if (stat_ok)
+        name = get_realname_from_uid (statbuf.st_uid);
 #endif
       if (name)
-	g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_OWNER_USER_REAL, name);
+	_g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_OWNER_USER_REAL, name);
       g_free (name);
     }
   
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_OWNER_GROUP))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_OWNER_GROUP))
     {
       char *name = NULL;
 #ifdef G_OS_WIN32
       win32_get_file_user_info (path, &name, NULL, NULL);
 #else
-      name = get_groupname_from_gid (statbuf.st_gid);
+      if (stat_ok)
+        name = get_groupname_from_gid (statbuf.st_gid);
 #endif
       if (name)
-	g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_OWNER_GROUP, name);
+	_g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_OWNER_GROUP, name);
       g_free (name);
     }
 
-  if (parent_info && parent_info->device != 0 &&
-      g_file_attribute_matcher_matches (attribute_matcher, G_FILE_ATTRIBUTE_UNIX_IS_MOUNTPOINT) &&
+  if (stat_ok && parent_info && parent_info->device != 0 &&
+      _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT) &&
       statbuf.st_dev != parent_info->device) 
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_UNIX_IS_MOUNTPOINT, TRUE);
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT, TRUE);
   
-  get_access_rights (attribute_matcher, info, path, &statbuf, parent_info);
+  if (stat_ok)
+    get_access_rights (attribute_matcher, info, path, &statbuf, parent_info);
   
 #ifdef HAVE_SELINUX
   get_selinux_context (path, info, attribute_matcher, (flags & G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS) == 0);
@@ -1672,11 +1730,27 @@ _g_local_file_info_get (const char             *basename,
   get_xattrs (path, TRUE, info, attribute_matcher, (flags & G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS) == 0);
   get_xattrs (path, FALSE, info, attribute_matcher, (flags & G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS) == 0);
 
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_THUMBNAIL_PATH))
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+					    G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH))
     get_thumbnail_attributes (path, info);
-  
+
+  vfs = g_vfs_get_default ();
+  class = G_VFS_GET_CLASS (vfs);
+  if (class->local_file_add_info)
+    {
+      class->local_file_add_info (vfs,
+                                  path,
+                                  device,
+                                  attribute_matcher,
+                                  info,
+                                  NULL,
+                                  &parent_info->extra_data,
+                                  &parent_info->free_extra_data);
+    }
+
   g_file_info_unset_attribute_mask (info);
+
+  g_free (symlink_target);
 
   return info;
 }
@@ -1702,7 +1776,7 @@ _g_local_file_info_get_from_fd (int         fd,
 
       g_set_error (error, G_IO_ERROR,
 		   g_io_error_from_errno (errsv),
-		   _("Error stating file descriptor: %s"),
+		   _("Error when getting information for file descriptor: %s"),
 		   g_strerror (errsv));
       return NULL;
     }
@@ -1717,13 +1791,13 @@ _g_local_file_info_get_from_fd (int         fd,
   set_info_from_stat (info, &stat_buf, matcher);
   
 #ifdef HAVE_SELINUX
-  if (g_file_attribute_matcher_matches (matcher, G_FILE_ATTRIBUTE_SELINUX_CONTEXT) &&
+  if (_g_file_attribute_matcher_matches_id (matcher, G_FILE_ATTRIBUTE_ID_SELINUX_CONTEXT) &&
       is_selinux_enabled ())
     {
       char *context;
       if (fgetfilecon_raw (fd, &context) >= 0)
 	{
-	  g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_SELINUX_CONTEXT, context);
+	  _g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_SELINUX_CONTEXT, context);
 	  freecon (context);
 	}
     }
@@ -1815,15 +1889,40 @@ get_string (const GFileAttributeValue  *value,
 
 static gboolean
 set_unix_mode (char                       *filename,
+               GFileQueryInfoFlags         flags,
 	       const GFileAttributeValue  *value,
 	       GError                    **error)
 {
-  guint32 val;
+  guint32 val = 0;
+  int res = 0;
   
   if (!get_uint32 (value, &val, error))
     return FALSE;
-  
-  if (g_chmod (filename, val) == -1)
+
+#ifdef HAVE_SYMLINK
+  if (flags & G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS) {
+#ifdef HAVE_LCHMOD
+    res = lchmod (filename, val);
+#else
+    struct stat statbuf;
+    /* Calling chmod on a symlink changes permissions on the symlink.
+     * We don't want to do this, so we need to check for a symlink */
+    res = g_lstat (filename, &statbuf);
+    if (res == 0 && S_ISLNK (statbuf.st_mode))
+      {
+        g_set_error_literal (error, G_IO_ERROR,
+                             G_IO_ERROR_NOT_SUPPORTED,
+                             _("Cannot set permissions on symlinks"));
+        return FALSE;
+      }
+    else if (res == 0)
+      res = g_chmod (filename, val);
+#endif
+  } else
+#endif
+    res = g_chmod (filename, val);
+
+  if (res == -1)
     {
       int errsv = errno;
 
@@ -1845,7 +1944,7 @@ set_unix_uid_gid (char                       *filename,
 		  GError                    **error)
 {
   int res;
-  guint32 val;
+  guint32 val = 0;
   uid_t uid;
   gid_t gid;
   
@@ -1981,8 +2080,8 @@ set_mtime_atime (char                       *filename,
 		 GError                    **error)
 {
   int res;
-  guint64 val;
-  guint32 val_usec;
+  guint64 val = 0;
+  guint32 val_usec = 0;
   struct stat statbuf;
   gboolean got_stat = FALSE;
   struct timeval times[2] = { {0, 0}, {0, 0} };
@@ -2048,7 +2147,7 @@ set_mtime_atime (char                       *filename,
 
       g_set_error (error, G_IO_ERROR,
 		   g_io_error_from_errno (errsv),
-		   _("Error setting owner: %s"),
+		   _("Error setting modification or access time: %s"),
 		   g_strerror (errsv));
 	  return FALSE;
     }
@@ -2112,11 +2211,13 @@ _g_local_file_info_set_attribute (char                 *filename,
 				  GError              **error)
 {
   GFileAttributeValue value = { 0 };
+  GVfsClass *class;
+  GVfs *vfs;
 
   _g_file_attribute_value_set_from_pointer (&value, type, value_p, FALSE);
   
   if (strcmp (attribute, G_FILE_ATTRIBUTE_UNIX_MODE) == 0)
-    return set_unix_mode (filename, &value, error);
+    return set_unix_mode (filename, flags, &value, error);
   
 #ifdef HAVE_CHOWN
   else if (strcmp (attribute, G_FILE_ATTRIBUTE_UNIX_UID) == 0)
@@ -2152,7 +2253,36 @@ _g_local_file_info_set_attribute (char                 *filename,
   else if (strcmp (attribute, G_FILE_ATTRIBUTE_SELINUX_CONTEXT) == 0)
     return set_selinux_context (filename, &value, error);
 #endif
-  
+
+  vfs = g_vfs_get_default ();
+  class = G_VFS_GET_CLASS (vfs);
+  if (class->local_file_set_attributes)
+    {
+      GFileInfo *info;
+
+      info = g_file_info_new ();
+      g_file_info_set_attribute (info,
+                                 attribute,
+                                 type,
+                                 value_p);
+      if (!class->local_file_set_attributes (vfs, filename,
+                                             info,
+                                             flags, cancellable,
+                                             error))
+        {
+          g_object_unref (info);
+	  return FALSE;
+        }
+
+      if (g_file_info_get_attribute_status (info, attribute) == G_FILE_ATTRIBUTE_STATUS_SET)
+        {
+          g_object_unref (info);
+          return TRUE;
+        }
+
+      g_object_unref (info);
+    }
+
   g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
 	       _("Setting attribute %s not supported"), attribute);
   return FALSE;
@@ -2176,6 +2306,8 @@ _g_local_file_info_set_attributes  (char                 *filename,
   GFileAttributeStatus status;
 #endif
   gboolean res;
+  GVfsClass *class;
+  GVfs *vfs;
   
   /* Handles setting multiple specified data in a single set, and takes care
      of ordering restrictions when setting attributes */
@@ -2229,7 +2361,7 @@ _g_local_file_info_set_attributes  (char                 *filename,
   value = _g_file_info_get_attribute_value (info, G_FILE_ATTRIBUTE_UNIX_MODE);
   if (value)
     {
-      if (!set_unix_mode (filename, value, error))
+      if (!set_unix_mode (filename, flags, value, error))
 	{
 	  value->status = G_FILE_ATTRIBUTE_STATUS_ERROR_SETTING;
 	  res = FALSE;
@@ -2295,6 +2427,21 @@ _g_local_file_info_set_attributes  (char                 *filename,
     }
   }
 #endif
+
+  vfs = g_vfs_get_default ();
+  class = G_VFS_GET_CLASS (vfs);
+  if (class->local_file_set_attributes)
+    {
+      if (!class->local_file_set_attributes (vfs, filename,
+                                             info,
+                                             flags, cancellable,
+                                             error))
+        {
+	  res = FALSE;
+	  /* Don't set error multiple times */
+	  error = NULL;
+        }
+    }
 
   return res;
 }

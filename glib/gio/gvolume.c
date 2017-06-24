@@ -29,7 +29,6 @@
 #include "gioerror.h"
 #include "glibintl.h"
 
-#include "gioalias.h"
 
 /**
  * SECTION:gvolume
@@ -41,8 +40,8 @@
  * equivalent of #GnomeVFSDrive.
  *
  * Mounting a #GVolume instance is an asynchronous operation. For more
- * information about asynchronous operations, see #GAsyncReady and
- * #GSimpleAsyncReady. To mount a #GVolume, first call
+ * information about asynchronous operations, see #GAsyncResult and
+ * #GSimpleAsyncResult. To mount a #GVolume, first call
  * g_volume_mount() with (at least) the #GVolume instance, optionally
  * a #GMountOperation object and a #GAsyncReadyCallback. 
  *
@@ -76,87 +75,42 @@
  * when the gvfs hal volume monitor is in use. Other volume monitors
  * will generally be able to provide the #G_VOLUME_IDENTIFIER_KIND_UNIX_DEVICE
  * identifier, which can be used to obtain a hal device by means of
- * libhal_manger_find_device_string_match().
+ * libhal_manager_find_device_string_match().
  */
 
-static void g_volume_base_init (gpointer g_class);
-static void g_volume_class_init (gpointer g_class,
-                                 gpointer class_data);
-
-GType
-g_volume_get_type (void)
-{
-  static volatile gsize g_define_type_id__volatile = 0;
-
-  if (g_once_init_enter (&g_define_type_id__volatile))
-    {
-      const GTypeInfo volume_info =
-      {
-        sizeof (GVolumeIface), /* class_size */
-	g_volume_base_init,   /* base_init */
-	NULL,		/* base_finalize */
-	g_volume_class_init,
-	NULL,		/* class_finalize */
-	NULL,		/* class_data */
-	0,
-	0,              /* n_preallocs */
-	NULL
-      };
-      GType g_define_type_id =
-	g_type_register_static (G_TYPE_INTERFACE, I_("GVolume"),
-				&volume_info, 0);
-
-      g_type_interface_add_prerequisite (g_define_type_id, G_TYPE_OBJECT);
-
-      g_once_init_leave (&g_define_type_id__volatile, g_define_type_id);
-    }
-
-  return g_define_type_id__volatile;
-}
+typedef GVolumeIface GVolumeInterface;
+G_DEFINE_INTERFACE(GVolume, g_volume, G_TYPE_OBJECT)
 
 static void
-g_volume_class_init (gpointer g_class,
-                     gpointer class_data)
+g_volume_default_init (GVolumeInterface *iface)
 {
-}
+  /**
+   * GVolume::changed:
+   * 
+   * Emitted when the volume has been changed.
+   **/
+  g_signal_new (I_("changed"),
+		G_TYPE_VOLUME,
+		G_SIGNAL_RUN_LAST,
+		G_STRUCT_OFFSET (GVolumeIface, changed),
+		NULL, NULL,
+		g_cclosure_marshal_VOID__VOID,
+		G_TYPE_NONE, 0);
 
-static void
-g_volume_base_init (gpointer g_class)
-{
-  static gboolean initialized = FALSE;
-
-  if (! initialized)
-    {
-     /**
-      * GVolume::changed:
-      * 
-      * Emitted when the volume has been changed.
-      **/
-      g_signal_new (I_("changed"),
-                    G_TYPE_VOLUME,
-                    G_SIGNAL_RUN_LAST,
-                    G_STRUCT_OFFSET (GVolumeIface, changed),
-                    NULL, NULL,
-                    g_cclosure_marshal_VOID__VOID,
-                    G_TYPE_NONE, 0);
-
-     /**
-      * GVolume::removed:
-      * 
-      * This signal is emitted when the #GVolume have been removed. If
-      * the recipient is holding references to the object they should
-      * release them so the object can be finalized.
-      **/
-      g_signal_new (I_("removed"),
-                    G_TYPE_VOLUME,
-                    G_SIGNAL_RUN_LAST,
-                    G_STRUCT_OFFSET (GVolumeIface, removed),
-                    NULL, NULL,
-                    g_cclosure_marshal_VOID__VOID,
-                    G_TYPE_NONE, 0);
-
-      initialized = TRUE;
-    }
+  /**
+   * GVolume::removed:
+   * 
+   * This signal is emitted when the #GVolume have been removed. If
+   * the recipient is holding references to the object they should
+   * release them so the object can be finalized.
+   **/
+  g_signal_new (I_("removed"),
+		G_TYPE_VOLUME,
+		G_SIGNAL_RUN_LAST,
+		G_STRUCT_OFFSET (GVolumeIface, removed),
+		NULL, NULL,
+		g_cclosure_marshal_VOID__VOID,
+		G_TYPE_NONE, 0);
 }
 
 /**
@@ -186,7 +140,7 @@ g_volume_get_name (GVolume *volume)
  * 
  * Gets the icon for @volume.
  * 
- * Returns: a #GIcon.
+ * Returns: (transfer full): a #GIcon.
  *     The returned object should be unreffed with g_object_unref()
  *     when no longer needed.
  **/
@@ -233,7 +187,7 @@ g_volume_get_uuid (GVolume *volume)
  * 
  * Gets the drive for the @volume.
  * 
- * Returns: a #GDrive or %NULL if @volume is not associated with a drive.
+ * Returns: (transfer full): a #GDrive or %NULL if @volume is not associated with a drive.
  *     The returned object should be unreffed with g_object_unref()
  *     when no longer needed.
  **/
@@ -255,7 +209,7 @@ g_volume_get_drive (GVolume *volume)
  * 
  * Gets the mount for the @volume.
  * 
- * Returns: a #GMount or %NULL if @volume isn't mounted.
+ * Returns: (transfer full): a #GMount or %NULL if @volume isn't mounted.
  *     The returned object should be unreffed with g_object_unref()
  *     when no longer needed.
  **/
@@ -346,14 +300,16 @@ g_volume_should_automount (GVolume *volume)
  * g_volume_mount:
  * @volume: a #GVolume.
  * @flags: flags affecting the operation
- * @mount_operation: a #GMountOperation or %NULL to avoid user interaction.
- * @cancellable: optional #GCancellable object, %NULL to ignore.
- * @callback: a #GAsyncReadyCallback, or %NULL.
+ * @mount_operation: (allow-none): a #GMountOperation or %NULL to avoid user interaction.
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore.
+ * @callback: (allow-none): a #GAsyncReadyCallback, or %NULL.
  * @user_data: user data that gets passed to @callback
  * 
  * Mounts a volume. This is an asynchronous operation, and is
  * finished by calling g_volume_mount_finish() with the @volume
  * and #GAsyncResult returned in the @callback.
+ *
+ * Virtual: mount_fn
  **/
 void
 g_volume_mount (GVolume             *volume,
@@ -387,7 +343,7 @@ g_volume_mount (GVolume             *volume,
  * @result: a #GAsyncResult
  * @error: a #GError location to store an error, or %NULL to ignore
  * 
- * Finishes mounting a volume. If any errors occured during the operation,
+ * Finishes mounting a volume. If any errors occurred during the operation,
  * @error will be set to contain the errors and %FALSE will be returned.
  *
  * If the mount operation succeeded, g_volume_get_mount() on @volume
@@ -422,13 +378,15 @@ g_volume_mount_finish (GVolume       *volume,
  * g_volume_eject:
  * @volume: a #GVolume.
  * @flags: flags affecting the unmount if required for eject
- * @cancellable: optional #GCancellable object, %NULL to ignore.
- * @callback: a #GAsyncReadyCallback, or %NULL.
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore.
+ * @callback: (allow-none): a #GAsyncReadyCallback, or %NULL.
  * @user_data: user data that gets passed to @callback
  * 
  * Ejects a volume. This is an asynchronous operation, and is
  * finished by calling g_volume_eject_finish() with the @volume
  * and #GAsyncResult returned in the @callback.
+ *
+ * Deprecated: 2.22: Use g_volume_eject_with_operation() instead.
  **/
 void
 g_volume_eject (GVolume             *volume,
@@ -461,10 +419,12 @@ g_volume_eject (GVolume             *volume,
  * @result: a #GAsyncResult.
  * @error: a #GError location to store an error, or %NULL to ignore
  * 
- * Finishes ejecting a volume. If any errors occured during the operation,
+ * Finishes ejecting a volume. If any errors occurred during the operation,
  * @error will be set to contain the errors and %FALSE will be returned.
  * 
  * Returns: %TRUE, %FALSE if operation failed.
+ *
+ * Deprecated: 2.22: Use g_volume_eject_with_operation_finish() instead.
  **/
 gboolean
 g_volume_eject_finish (GVolume       *volume,
@@ -485,6 +445,92 @@ g_volume_eject_finish (GVolume       *volume,
   
   iface = G_VOLUME_GET_IFACE (volume);
   return (* iface->eject_finish) (volume, result, error);
+}
+
+/**
+ * g_volume_eject_with_operation:
+ * @volume: a #GVolume.
+ * @flags: flags affecting the unmount if required for eject
+ * @mount_operation: (allow-none): a #GMountOperation or %NULL to
+ *     avoid user interaction.
+ * @cancellable: (allow-none): optional #GCancellable object, %NULL to ignore.
+ * @callback: (allow-none): a #GAsyncReadyCallback, or %NULL.
+ * @user_data: user data passed to @callback.
+ *
+ * Ejects a volume. This is an asynchronous operation, and is
+ * finished by calling g_volume_eject_with_operation_finish() with the @volume
+ * and #GAsyncResult data returned in the @callback.
+ *
+ * Since: 2.22
+ **/
+void
+g_volume_eject_with_operation (GVolume              *volume,
+                               GMountUnmountFlags   flags,
+                               GMountOperation     *mount_operation,
+                               GCancellable        *cancellable,
+                               GAsyncReadyCallback  callback,
+                               gpointer             user_data)
+{
+  GVolumeIface *iface;
+
+  g_return_if_fail (G_IS_VOLUME (volume));
+
+  iface = G_VOLUME_GET_IFACE (volume);
+
+  if (iface->eject == NULL && iface->eject_with_operation == NULL)
+    {
+      g_simple_async_report_error_in_idle (G_OBJECT (volume),
+					   callback, user_data,
+					   G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+					   /* Translators: This is an error
+					    * message for volume objects that
+					    * don't implement any of eject or eject_with_operation. */
+					   _("volume doesn't implement eject or eject_with_operation"));
+      return;
+    }
+
+  if (iface->eject_with_operation != NULL)
+    (* iface->eject_with_operation) (volume, flags, mount_operation, cancellable, callback, user_data);
+  else
+    (* iface->eject) (volume, flags, cancellable, callback, user_data);
+}
+
+/**
+ * g_volume_eject_with_operation_finish:
+ * @volume: a #GVolume.
+ * @result: a #GAsyncResult.
+ * @error: a #GError location to store the error occurring, or %NULL to
+ *     ignore.
+ *
+ * Finishes ejecting a volume. If any errors occurred during the operation,
+ * @error will be set to contain the errors and %FALSE will be returned.
+ *
+ * Returns: %TRUE if the volume was successfully ejected. %FALSE otherwise.
+ *
+ * Since: 2.22
+ **/
+gboolean
+g_volume_eject_with_operation_finish (GVolume        *volume,
+                                      GAsyncResult  *result,
+                                      GError       **error)
+{
+  GVolumeIface *iface;
+
+  g_return_val_if_fail (G_IS_VOLUME (volume), FALSE);
+  g_return_val_if_fail (G_IS_ASYNC_RESULT (result), FALSE);
+
+  if (G_IS_SIMPLE_ASYNC_RESULT (result))
+    {
+      GSimpleAsyncResult *simple = G_SIMPLE_ASYNC_RESULT (result);
+      if (g_simple_async_result_propagate_error (simple, error))
+        return FALSE;
+    }
+
+  iface = G_VOLUME_GET_IFACE (volume);
+  if (iface->eject_with_operation_finish != NULL)
+    return (* iface->eject_with_operation_finish) (volume, result, error);
+  else
+    return (* iface->eject_finish) (volume, result, error);
 }
 
 /**
@@ -522,11 +568,11 @@ g_volume_get_identifier (GVolume    *volume,
  * @volume: a #GVolume
  * 
  * Gets the kinds of <link linkend="volume-identifier">identifiers</link>
- * that @volume has. Use g_volume_get_identifer() to obtain 
+ * that @volume has. Use g_volume_get_identifier() to obtain
  * the identifiers themselves.
  *
- * Returns: a %NULL-terminated array of strings containing
- *   kinds of identifiers. Use g_strfreev() to free.
+ * Returns: (array zero-terminated=1) (transfer full): a %NULL-terminated array
+ *   of strings containing kinds of identifiers. Use g_strfreev() to free.
  */
 char **
 g_volume_enumerate_identifiers (GVolume *volume)
@@ -576,7 +622,7 @@ g_volume_enumerate_identifiers (GVolume *volume)
  * implementations to find the underlying mount to shadow, see
  * g_mount_is_shadowed() for more details.
  *
- * Returns: the activation root of @volume or %NULL. Use
+ * Returns: (transfer full): the activation root of @volume or %NULL. Use
  * g_object_unref() to free.
  *
  * Since: 2.18
@@ -595,7 +641,27 @@ g_volume_get_activation_root (GVolume *volume)
   return (* iface->get_activation_root) (volume);
 }
 
+/**
+ * g_volume_get_sort_key:
+ * @volume: A #GVolume.
+ *
+ * Gets the sort key for @volume, if any.
+ *
+ * Returns: Sorting key for @volume or %NULL if no such key is available.
+ *
+ * Since: 2.32
+ */
+const gchar *
+g_volume_get_sort_key (GVolume  *volume)
+{
+  const gchar *ret = NULL;
+  GVolumeIface *iface;
 
+  g_return_val_if_fail (G_IS_VOLUME (volume), NULL);
 
-#define __G_VOLUME_C__
-#include "gioaliasdef.c"
+  iface = G_VOLUME_GET_IFACE (volume);
+  if (iface->get_sort_key != NULL)
+    ret = iface->get_sort_key (volume);
+
+  return ret;
+}

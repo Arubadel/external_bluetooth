@@ -51,7 +51,6 @@ G_BEGIN_DECLS
 
 /**
  * GVolumeMonitor:
- * @parent_instance: The parent instance.
  *
  * A Volume Monitor that watches for volume events.
  **/
@@ -117,6 +116,10 @@ struct _GVolumeMonitorClass
   void      (* drive_eject_button)   (GVolumeMonitor *volume_monitor,
                                       GDrive         *drive);
 
+  /* signal added in 2.21 */
+  void      (* drive_stop_button)   (GVolumeMonitor *volume_monitor,
+                                     GDrive         *drive);
+
   /*< private >*/
   /* Padding for future expansion */
   void (*_g_reserved1) (void);
@@ -125,7 +128,6 @@ struct _GVolumeMonitorClass
   void (*_g_reserved4) (void);
   void (*_g_reserved5) (void);
   void (*_g_reserved6) (void);
-  void (*_g_reserved7) (void);
 };
 
 GType           g_volume_monitor_get_type             (void) G_GNUC_CONST;
@@ -139,9 +141,8 @@ GVolume *       g_volume_monitor_get_volume_for_uuid  (GVolumeMonitor *volume_mo
 GMount *        g_volume_monitor_get_mount_for_uuid   (GVolumeMonitor *volume_monitor,
                                                        const char     *uuid);
 
-#ifndef G_DISABLE_DEPRECATED
+GLIB_DEPRECATED
 GVolume *       g_volume_monitor_adopt_orphan_mount   (GMount         *mount);
-#endif
 
 G_END_DECLS
 
